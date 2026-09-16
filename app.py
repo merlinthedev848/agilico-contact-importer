@@ -37,13 +37,20 @@ from selenium.common.exceptions import (
 
 
 class AgilicoImporterApp:
-    # Ag-Diag Design Tokens
-    COLOR_NAVY = "#000033"
-    COLOR_BG = "#f5f6fa"
-    COLOR_CARD = "#ffffff"
+    # Ag-Diag Design Tokens (Identical to agilicomsptoolkit)
+    COLOR_SIDEBAR_BG = "#000033"
+    COLOR_SIDEBAR_HOVER = "#12124a"
+    COLOR_APP_BG = "#f5f6fa"
+    COLOR_CARD_BG = "#ffffff"
     COLOR_BORDER = "#e2e8f0"
+    COLOR_BORDER_INPUT = "#cbd5e1"
+    COLOR_DROPZONE_BG = "#f8fafc"
+    COLOR_DROPZONE_BORDER = "#cbd5e1"
+    
     COLOR_TEXT_DARK = "#1e293b"
     COLOR_TEXT_MUTED = "#64748b"
+    COLOR_TEXT_LIGHT = "#94a3b8"
+    
     COLOR_GREEN = "#00b862"
     COLOR_GREEN_HOVER = "#00d672"
     COLOR_RED = "#ef4444"
@@ -53,23 +60,37 @@ class AgilicoImporterApp:
 
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Agilico Contact Importer")
-        self.root.geometry("800x740")
-        self.root.minsize(720, 600)
+        self.root.title("Agilico MSP Toolkit - Contact Importer")
+        self.root.geometry("980x740")
+        self.root.minsize(900, 660)
 
-        # Set App Icon if present
-        icon_path = os.path.join(os.path.dirname(__file__), "logo.ico")
+        # Application Icon
+        self.logo_img = None
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        icon_path = os.path.join(base_dir, "logo.ico")
+        png_path = os.path.join(base_dir, "logo.png")
+
         if os.path.exists(icon_path):
             try:
                 self.root.iconbitmap(icon_path)
             except Exception:
                 pass
 
+        if os.path.exists(png_path):
+            try:
+                self.logo_img = tk.PhotoImage(file=png_path).subsample(4, 4)
+            except Exception:
+                pass
+
         # State variables
-        self.csv_path_var = tk.StringVar()
+        self.csv_path_var = tk.StringVar(value="")
+        self.file_name_display_var = tk.StringVar(value="No contacts CSV file selected")
         self.url_var = tk.StringVar(value="https://customerportal.hp2k.co.uk/")
         self.customer_var = tk.StringVar()
         self.browser_var = tk.StringVar(value="Microsoft Edge (Default)")
+        self.progress_val_var = tk.DoubleVar(value=0.0)
+        self.status_detail_var = tk.StringVar(value="Ready to import")
+        
         self.is_running = False
         self.stop_requested = False
         self.log_queue = queue.Queue()
@@ -85,136 +106,304 @@ class AgilicoImporterApp:
         except Exception:
             pass
 
-        self.root.configure(bg=self.COLOR_BG)
+        self.root.configure(bg=self.COLOR_SIDEBAR_BG)
 
-        # Style Combobox and Entry
-        style.configure("TCombobox", fieldbackground="#ffffff", background="#ffffff")
-        style.configure("TEntry", fieldbackground="#ffffff")
-
-        # --- 1. Top Agilico Brand Header ---
-        header_container = tk.Frame(self.root, bg=self.COLOR_NAVY)
-        header_container.pack(fill=tk.X)
-
-        header_frame = tk.Frame(header_container, bg=self.COLOR_NAVY, padx=24, pady=18)
-        header_frame.pack(fill=tk.X)
-
-        header_top_row = tk.Frame(header_frame, bg=self.COLOR_NAVY)
-        header_top_row.pack(fill=tk.X)
-
-        title_label = tk.Label(
-            header_top_row,
-            text="Agilico Contact Importer",
-            font=("Segoe UI", 16, "bold"),
-            fg="#ffffff",
-            bg=self.COLOR_NAVY,
+        # Style TTK Progressbar & Combobox
+        style.configure(
+            "Agilico.Horizontal.TProgressbar",
+            troughcolor="#e2e8f0",
+            background=self.COLOR_GREEN,
+            bordercolor="#e2e8f0",
+            lightcolor=self.COLOR_GREEN,
+            darkcolor=self.COLOR_GREEN,
         )
-        title_label.pack(side=tk.LEFT)
-
-        # Green Pill Badge
-        badge_label = tk.Label(
-            header_top_row,
-            text=" AUTOMATION TOOL ",
-            font=("Segoe UI", 8, "bold"),
-            fg="#ffffff",
-            bg=self.COLOR_GREEN,
-            padx=6,
-            pady=2,
+        style.configure(
+            "TCombobox",
+            fieldbackground="#ffffff",
+            background="#ffffff",
+            foreground=self.COLOR_TEXT_DARK,
         )
-        badge_label.pack(side=tk.LEFT, padx=(10, 0), pady=(2, 0))
 
-        subtitle_label = tk.Label(
-            header_frame,
-            text="Automated Tenant Switching, Contact Creation & Phone Number Mapping",
+        # Root Layout: Left Sidebar + Right Main Area
+        main_container = tk.Frame(self.root, bg=self.COLOR_APP_BG)
+        main_container.pack(fill=tk.BOTH, expand=True)
+
+        # =========================================================================
+        # 1. LEFT VERTICAL SIDEBAR (Ag-Diag Brand Navy #000033)
+        # =========================================================================
+        sidebar = tk.Frame(main_container, bg=self.COLOR_SIDEBAR_BG, width=95)
+        sidebar.pack(side=tk.LEFT, fill=tk.Y)
+        sidebar.pack_propagate(False)
+
+        # 1a. Top Agilico "A" Logo
+        logo_frame = tk.Frame(sidebar, bg=self.COLOR_SIDEBAR_BG, pady=16)
+        logo_frame.pack(fill=tk.X)
+
+        if self.logo_img:
+            logo_label = tk.Label(logo_frame, image=self.logo_img, bg=self.COLOR_SIDEBAR_BG)
+            logo_label.pack()
+        else:
+            # Fallback text logo if png not present
+            logo_label = tk.Label(
+                logo_frame,
+                text="▲",
+                font=("Segoe UI", 24, "bold"),
+                fg=self.COLOR_GREEN,
+                bg=self.COLOR_SIDEBAR_BG,
+            )
+            logo_label.pack()
+
+        # 1b. Navigation Items Stack
+        nav_container = tk.Frame(sidebar, bg=self.COLOR_SIDEBAR_BG)
+        nav_container.pack(fill=tk.X, pady=(10, 0))
+
+        # Nav Item 1: Importer (ACTIVE with Green Stripe)
+        self._create_nav_item(nav_container, "📥", "Importer", is_active=True)
+        self._create_nav_item(nav_container, "📊", "Dashboard", is_active=False)
+        self._create_nav_item(nav_container, "📝", "Logs", is_active=False)
+        self._create_nav_item(nav_container, "❓", "Help", is_active=False)
+        self._create_nav_item(nav_container, "⚙", "Settings", is_active=False)
+
+        # 1c. Bottom Version Label
+        version_label = tk.Label(
+            sidebar,
+            text="v4.1.2\n(Standard)",
+            font=("Segoe UI", 7),
+            fg=self.COLOR_TEXT_LIGHT,
+            bg=self.COLOR_SIDEBAR_BG,
+            justify=tk.CENTER,
+        )
+        version_label.pack(side=tk.BOTTOM, pady=14)
+
+        # =========================================================================
+        # 2. RIGHT MAIN CONTENT AREA (#f5f6fa)
+        # =========================================================================
+        content_area = tk.Frame(main_container, bg=self.COLOR_APP_BG, padx=22, pady=18)
+        content_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # -------------------------------------------------------------------------
+        # CARD 1: Top Main Upload Card (Hero Card)
+        # -------------------------------------------------------------------------
+        top_card = tk.Frame(
+            content_area,
+            bg=self.COLOR_CARD_BG,
+            highlightbackground=self.COLOR_BORDER,
+            highlightthickness=1,
+            padx=20,
+            pady=16,
+        )
+        top_card.pack(fill=tk.X, pady=(0, 16))
+
+        # Card 1 Title & Description
+        card1_title = tk.Label(
+            top_card,
+            text="Contact Importer",
+            font=("Segoe UI", 13, "bold"),
+            fg=self.COLOR_TEXT_DARK,
+            bg=self.COLOR_CARD_BG,
+        )
+        card1_title.pack(anchor="w")
+
+        card1_desc = tk.Label(
+            top_card,
+            text="Batch create and map contacts and phone numbers into the Agilico portal with automatic tenant switching.",
             font=("Segoe UI", 9),
-            fg="#94a3b8",
-            bg=self.COLOR_NAVY,
+            fg=self.COLOR_TEXT_MUTED,
+            bg=self.COLOR_CARD_BG,
         )
-        subtitle_label.pack(anchor="w", pady=(4, 0))
+        card1_desc.pack(anchor="w", pady=(2, 12))
 
-        # Agilico Green Accent Strip
-        green_strip = tk.Frame(header_container, bg=self.COLOR_GREEN, height=3)
-        green_strip.pack(fill=tk.X)
+        # Dropzone / File Picker Box
+        dropzone = tk.Frame(
+            top_card,
+            bg=self.COLOR_DROPZONE_BG,
+            highlightbackground=self.COLOR_DROPZONE_BORDER,
+            highlightthickness=1,
+            padx=20,
+            pady=14,
+        )
+        dropzone.pack(fill=tk.X, pady=(0, 10))
 
-        # --- 2. Main Content Canvas ---
-        content_frame = tk.Frame(self.root, bg=self.COLOR_BG, padx=20, pady=16)
-        content_frame.pack(fill=tk.BOTH, expand=True)
+        # Icon inside dropzone
+        dz_icon = tk.Label(
+            dropzone,
+            text="📄",
+            font=("Segoe UI", 20),
+            bg=self.COLOR_DROPZONE_BG,
+            fg=self.COLOR_TEXT_DARK,
+        )
+        dz_icon.pack(pady=(2, 2))
 
-        # --- Card 1: Configuration Card ---
+        dz_title = tk.Label(
+            dropzone,
+            text="Drag & Drop CSV File Here",
+            font=("Segoe UI", 11, "bold"),
+            fg=self.COLOR_TEXT_DARK,
+            bg=self.COLOR_DROPZONE_BG,
+        )
+        dz_title.pack()
+
+        dz_subtitle = tk.Label(
+            dropzone,
+            text="Supports First Name, Last Name, Display Name, Speed Dial & Number",
+            font=("Segoe UI", 8),
+            fg=self.COLOR_TEXT_MUTED,
+            bg=self.COLOR_DROPZONE_BG,
+        )
+        dz_subtitle.pack(pady=(2, 8))
+
+        # BROWSE FILES Button (Ag-Diag Green Button)
+        self.browse_btn = tk.Button(
+            dropzone,
+            text="BROWSE CSV FILE",
+            command=self._browse_csv,
+            bg=self.COLOR_GREEN,
+            fg="#ffffff",
+            activebackground=self.COLOR_GREEN_HOVER,
+            activeforeground="#ffffff",
+            font=("Segoe UI", 9, "bold"),
+            padx=24,
+            pady=6,
+            relief=tk.FLAT,
+            cursor="hand2",
+        )
+        self.browse_btn.pack(pady=(0, 4))
+
+        # Selected File Info & Progress Bar Box
+        file_status_box = tk.Frame(
+            top_card,
+            bg="#f8fafc",
+            highlightbackground=self.COLOR_BORDER,
+            highlightthickness=1,
+            padx=14,
+            pady=10,
+        )
+        file_status_box.pack(fill=tk.X)
+
+        self.file_name_label = tk.Label(
+            file_status_box,
+            textvariable=self.file_name_display_var,
+            font=("Segoe UI", 9, "bold"),
+            fg=self.COLOR_TEXT_DARK,
+            bg="#f8fafc",
+            anchor="w",
+        )
+        self.file_name_label.pack(fill=tk.X)
+
+        # Green Progress Bar
+        self.progressbar = ttk.Progressbar(
+            file_status_box,
+            style="Agilico.Horizontal.TProgressbar",
+            variable=self.progress_val_var,
+            maximum=100,
+        )
+        self.progressbar.pack(fill=tk.X, pady=(6, 4))
+
+        self.status_detail_label = tk.Label(
+            file_status_box,
+            textvariable=self.status_detail_var,
+            font=("Segoe UI", 8),
+            fg=self.COLOR_TEXT_MUTED,
+            bg="#f8fafc",
+            anchor="w",
+        )
+        self.status_detail_label.pack(fill=tk.X)
+
+        # -------------------------------------------------------------------------
+        # BOTTOM ROW: 2 Dual Cards (Configuration & Activity Log)
+        # -------------------------------------------------------------------------
+        bottom_row = tk.Frame(content_area, bg=self.COLOR_APP_BG)
+        bottom_row.pack(fill=tk.BOTH, expand=True)
+        bottom_row.columnconfigure(0, weight=1, uniform="bottom_card")
+        bottom_row.columnconfigure(1, weight=1, uniform="bottom_card")
+        bottom_row.rowconfigure(0, weight=1)
+
+        # CARD 2 (LEFT): Configuration Card
         card_config = tk.Frame(
-            content_frame,
-            bg=self.COLOR_CARD,
+            bottom_row,
+            bg=self.COLOR_CARD_BG,
             highlightbackground=self.COLOR_BORDER,
             highlightthickness=1,
             padx=18,
             pady=14,
         )
-        card_config.pack(fill=tk.X, pady=(0, 14))
+        card_config.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
 
-        card_title = tk.Label(
+        c2_title = tk.Label(
             card_config,
-            text="Configuration & Settings",
+            text="Portal Configuration",
             font=("Segoe UI", 11, "bold"),
             fg=self.COLOR_TEXT_DARK,
-            bg=self.COLOR_CARD,
+            bg=self.COLOR_CARD_BG,
         )
-        card_title.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 12))
+        c2_title.pack(anchor="w")
 
-        # Base URL Row
-        url_label = tk.Label(
+        c2_desc = tk.Label(
             card_config,
-            text="Agilico Base URL:",
-            font=("Segoe UI", 9, "bold"),
-            fg=self.COLOR_TEXT_DARK,
-            bg=self.COLOR_CARD,
+            text="Target portal and customer tenant specifications.",
+            font=("Segoe UI", 8),
+            fg=self.COLOR_TEXT_MUTED,
+            bg=self.COLOR_CARD_BG,
         )
-        url_label.grid(row=1, column=0, sticky="w", pady=5)
+        c2_desc.pack(anchor="w", pady=(2, 10))
+
+        # Fields inside Configuration Card
+        fields_frame = tk.Frame(card_config, bg=self.COLOR_CARD_BG)
+        fields_frame.pack(fill=tk.X)
+
+        # Base URL
+        tk.Label(
+            fields_frame,
+            text="Base Portal URL:",
+            font=("Segoe UI", 8, "bold"),
+            fg=self.COLOR_TEXT_DARK,
+            bg=self.COLOR_CARD_BG,
+        ).pack(anchor="w", pady=(0, 2))
 
         self.url_entry = tk.Entry(
-            card_config,
+            fields_frame,
             textvariable=self.url_var,
-            font=("Segoe UI", 10),
+            font=("Segoe UI", 9),
             bg="#ffffff",
             fg=self.COLOR_TEXT_DARK,
             relief=tk.SOLID,
             bd=1,
             highlightthickness=0,
         )
-        self.url_entry.grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=5, ipady=4)
+        self.url_entry.pack(fill=tk.X, ipady=3, pady=(0, 8))
 
-        # Target Customer Row
-        cust_label = tk.Label(
-            card_config,
-            text="Target Customer:",
-            font=("Segoe UI", 9, "bold"),
+        # Target Customer
+        tk.Label(
+            fields_frame,
+            text="Target Customer (Tenant Switch):",
+            font=("Segoe UI", 8, "bold"),
             fg=self.COLOR_TEXT_DARK,
-            bg=self.COLOR_CARD,
-        )
-        cust_label.grid(row=2, column=0, sticky="w", pady=5)
+            bg=self.COLOR_CARD_BG,
+        ).pack(anchor="w", pady=(0, 2))
 
         self.cust_entry = tk.Entry(
-            card_config,
+            fields_frame,
             textvariable=self.customer_var,
-            font=("Segoe UI", 10),
+            font=("Segoe UI", 9),
             bg="#ffffff",
             fg=self.COLOR_TEXT_DARK,
             relief=tk.SOLID,
             bd=1,
             highlightthickness=0,
         )
-        self.cust_entry.grid(row=2, column=1, sticky="ew", padx=(10, 0), pady=5, ipady=4)
+        self.cust_entry.pack(fill=tk.X, ipady=3, pady=(0, 8))
 
-        # Web Browser Row
-        browser_label = tk.Label(
-            card_config,
+        # Web Browser
+        tk.Label(
+            fields_frame,
             text="Web Browser:",
-            font=("Segoe UI", 9, "bold"),
+            font=("Segoe UI", 8, "bold"),
             fg=self.COLOR_TEXT_DARK,
-            bg=self.COLOR_CARD,
-        )
-        browser_label.grid(row=3, column=0, sticky="w", pady=5)
+            bg=self.COLOR_CARD_BG,
+        ).pack(anchor="w", pady=(0, 2))
 
         self.browser_combo = ttk.Combobox(
-            card_config,
+            fields_frame,
             textvariable=self.browser_var,
             values=[
                 "Microsoft Edge (Default)",
@@ -223,135 +412,87 @@ class AgilicoImporterApp:
                 "Auto-Detect (Any Available)",
             ],
             state="readonly",
-            font=("Segoe UI", 10),
+            font=("Segoe UI", 9),
         )
-        self.browser_combo.grid(row=3, column=1, sticky="ew", padx=(10, 0), pady=5, ipady=3)
+        self.browser_combo.pack(fill=tk.X, ipady=2, pady=(0, 14))
 
-        # CSV File Picker Row
-        csv_label = tk.Label(
-            card_config,
-            text="Contacts CSV File:",
-            font=("Segoe UI", 9, "bold"),
-            fg=self.COLOR_TEXT_DARK,
-            bg=self.COLOR_CARD,
-        )
-        csv_label.grid(row=4, column=0, sticky="w", pady=5)
-
-        csv_picker_frame = tk.Frame(card_config, bg=self.COLOR_CARD)
-        csv_picker_frame.grid(row=4, column=1, sticky="ew", padx=(10, 0), pady=5)
-
-        self.csv_entry = tk.Entry(
-            csv_picker_frame,
-            textvariable=self.csv_path_var,
-            font=("Segoe UI", 10),
-            bg="#ffffff",
-            fg=self.COLOR_TEXT_DARK,
-            relief=tk.SOLID,
-            bd=1,
-            highlightthickness=0,
-        )
-        self.csv_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=4)
-
-        self.browse_btn = tk.Button(
-            csv_picker_frame,
-            text="Browse...",
-            command=self._browse_csv,
-            bg=self.COLOR_NAVY,
-            fg="#ffffff",
-            activebackground="#1e1e66",
-            activeforeground="#ffffff",
-            font=("Segoe UI", 9, "bold"),
-            padx=14,
-            pady=3,
-            relief=tk.FLAT,
-            cursor="hand2",
-        )
-        self.browse_btn.pack(side=tk.RIGHT, padx=(8, 0))
-
-        card_config.columnconfigure(1, weight=1)
-
-        # --- Section 2: Actions Bar ---
-        action_frame = tk.Frame(content_frame, bg=self.COLOR_BG)
-        action_frame.pack(fill=tk.X, pady=(0, 14))
+        # Actions Row (Start / Stop)
+        actions_btn_frame = tk.Frame(card_config, bg=self.COLOR_CARD_BG)
+        actions_btn_frame.pack(fill=tk.X, side=tk.BOTTOM)
 
         self.start_btn = tk.Button(
-            action_frame,
-            text="▶  Start Import",
+            actions_btn_frame,
+            text="START IMPORT",
             command=self._start_import_thread,
             bg=self.COLOR_GREEN,
             fg="#ffffff",
             activebackground=self.COLOR_GREEN_HOVER,
             activeforeground="#ffffff",
-            font=("Segoe UI", 10, "bold"),
-            padx=20,
-            pady=8,
+            font=("Segoe UI", 9, "bold"),
+            padx=18,
+            pady=7,
             relief=tk.FLAT,
             cursor="hand2",
         )
         self.start_btn.pack(side=tk.LEFT)
 
         self.stop_btn = tk.Button(
-            action_frame,
-            text="⏹  Stop / Cancel",
+            actions_btn_frame,
+            text="STOP",
             command=self._stop_import,
             state=tk.DISABLED,
             bg=self.COLOR_RED,
             fg="#ffffff",
             activebackground=self.COLOR_RED_HOVER,
             activeforeground="#ffffff",
-            font=("Segoe UI", 10, "bold"),
-            padx=18,
-            pady=8,
+            font=("Segoe UI", 9, "bold"),
+            padx=16,
+            pady=7,
             relief=tk.FLAT,
             cursor="hand2",
         )
-        self.stop_btn.pack(side=tk.LEFT, padx=(12, 0))
+        self.stop_btn.pack(side=tk.LEFT, padx=(10, 0))
 
-        self.status_var = tk.StringVar(value="Status: Ready")
-        self.status_badge = tk.Label(
-            action_frame,
-            textvariable=self.status_var,
-            font=("Segoe UI", 9, "bold"),
-            fg=self.COLOR_TEXT_MUTED,
-            bg="#e2e8f0",
-            padx=12,
-            pady=6,
-        )
-        self.status_badge.pack(side=tk.RIGHT)
-
-        # --- Card 3: Activity Log Card ---
+        # CARD 3 (RIGHT): Live Activity Log Card
         card_log = tk.Frame(
-            content_frame,
-            bg=self.COLOR_CARD,
+            bottom_row,
+            bg=self.COLOR_CARD_BG,
             highlightbackground=self.COLOR_BORDER,
             highlightthickness=1,
-            padx=14,
-            pady=12,
+            padx=18,
+            pady=14,
         )
-        card_log.pack(fill=tk.BOTH, expand=True)
+        card_log.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
 
-        log_header = tk.Frame(card_log, bg=self.COLOR_CARD)
-        log_header.pack(fill=tk.X, pady=(0, 8))
-
-        log_title = tk.Label(
-            log_header,
-            text="Live Activity & Diagnostics Log",
-            font=("Segoe UI", 10, "bold"),
+        c3_title = tk.Label(
+            card_log,
+            text="Activity & Diagnostics",
+            font=("Segoe UI", 11, "bold"),
             fg=self.COLOR_TEXT_DARK,
-            bg=self.COLOR_CARD,
+            bg=self.COLOR_CARD_BG,
         )
-        log_title.pack(side=tk.LEFT)
+        c3_title.pack(anchor="w")
 
+        c3_desc = tk.Label(
+            card_log,
+            text="Real-time validation & automation pipeline.",
+            font=("Segoe UI", 8),
+            fg=self.COLOR_TEXT_MUTED,
+            bg=self.COLOR_CARD_BG,
+        )
+        c3_desc.pack(anchor="w", pady=(2, 8))
+
+        # Console Text View
         self.log_text = scrolledtext.ScrolledText(
             card_log,
             wrap=tk.WORD,
-            font=("Consolas", 9),
+            font=("Consolas", 8),
             bg=self.COLOR_LOG_BG,
             fg="#e2e8f0",
             insertbackground="#ffffff",
             relief=tk.FLAT,
-            padx=8,
-            pady=8,
+            padx=6,
+            pady=6,
         )
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
@@ -362,7 +503,42 @@ class AgilicoImporterApp:
         self.log_text.tag_config("ERROR", foreground=self.COLOR_RED)
         self.log_text.tag_config("MUTED", foreground=self.COLOR_TEXT_MUTED)
 
-        self.log("Ready. Select contacts.csv, enter target customer (optional), and click 'Start Import'.", level="MUTED")
+        self.log("Ready. Select contacts.csv, enter target customer, and click 'START IMPORT'.", level="MUTED")
+
+    def _create_nav_item(self, parent, icon_char: str, label_text: str, is_active: bool = False):
+        """Creates an ag-diag style vertical sidebar item with left green active stripe."""
+        item_bg = self.COLOR_SIDEBAR_HOVER if is_active else self.COLOR_SIDEBAR_BG
+        item_frame = tk.Frame(parent, bg=item_bg, height=72)
+        item_frame.pack(fill=tk.X)
+        item_frame.pack_propagate(False)
+
+        if is_active:
+            # Green 4px active stripe
+            stripe = tk.Frame(item_frame, bg=self.COLOR_GREEN, width=4)
+            stripe.pack(side=tk.LEFT, fill=tk.Y)
+
+        content = tk.Frame(item_frame, bg=item_bg)
+        content.pack(expand=True)
+
+        icon_color = "#ffffff" if is_active else "#94a3b8"
+        icon_lbl = tk.Label(
+            content,
+            text=icon_char,
+            font=("Segoe UI", 16),
+            fg=icon_color,
+            bg=item_bg,
+        )
+        icon_lbl.pack()
+
+        text_color = "#ffffff" if is_active else "#94a3b8"
+        text_lbl = tk.Label(
+            content,
+            text=label_text,
+            font=("Segoe UI", 8, "bold" if is_active else "normal"),
+            fg=text_color,
+            bg=item_bg,
+        )
+        text_lbl.pack(pady=(2, 0))
 
     def _browse_csv(self):
         filename = filedialog.askopenfilename(
@@ -371,6 +547,9 @@ class AgilicoImporterApp:
         )
         if filename:
             self.csv_path_var.set(filename)
+            base_name = os.path.basename(filename)
+            self.file_name_display_var.set(f"📄 {base_name} ({filename})")
+            self.status_detail_var.set(f"Selected: {base_name} - Ready to start import")
             self.log(f"Selected CSV file: {filename}", level="INFO")
 
     def log(self, message: str, level: str = "INFO"):
@@ -399,27 +578,22 @@ class AgilicoImporterApp:
         if is_running:
             self.start_btn.config(state=tk.DISABLED, bg="#94d3a2", cursor="arrow")
             self.stop_btn.config(state=tk.NORMAL, bg=self.COLOR_RED, cursor="hand2")
-            self.browse_btn.config(state=tk.DISABLED)
+            self.browse_btn.config(state=tk.DISABLED, bg="#94d3a2")
             self.url_entry.config(state=tk.DISABLED)
             self.cust_entry.config(state=tk.DISABLED)
             self.browser_combo.config(state=tk.DISABLED)
-            self.csv_entry.config(state=tk.DISABLED)
-            self.status_var.set("Status: Running...")
-            self.status_badge.config(bg="#dbeafe", fg="#1d4ed8")
         else:
             self.start_btn.config(state=tk.NORMAL, bg=self.COLOR_GREEN, cursor="hand2")
             self.stop_btn.config(state=tk.DISABLED, bg="#fca5a5", cursor="arrow")
-            self.browse_btn.config(state=tk.NORMAL)
+            self.browse_btn.config(state=tk.NORMAL, bg=self.COLOR_GREEN)
             self.url_entry.config(state=tk.NORMAL)
             self.cust_entry.config(state=tk.NORMAL)
             self.browser_combo.config(state="readonly")
-            self.csv_entry.config(state=tk.NORMAL)
-            self.status_var.set("Status: Ready")
-            self.status_badge.config(bg="#e2e8f0", fg=self.COLOR_TEXT_MUTED)
 
     def _stop_import(self):
         if self.is_running:
             self.stop_requested = True
+            self.status_detail_var.set("Stopping import process...")
             self.log("Stopping import process requested by user...", level="WARNING")
 
     def _start_import_thread(self):
@@ -433,11 +607,13 @@ class AgilicoImporterApp:
             return
 
         if not csv_path or not os.path.exists(csv_path):
-            messagebox.showerror("Error", "Please select an existing contacts CSV file.")
+            messagebox.showerror("Error", "Please select an existing contacts CSV file using 'BROWSE CSV FILE'.")
             return
 
         self._set_ui_state(True)
         self.stop_requested = False
+        self.progress_val_var.set(0)
+        self.status_detail_var.set("Initializing automation workflow...")
 
         thread = threading.Thread(
             target=self._run_automation,
@@ -533,7 +709,6 @@ class AgilicoImporterApp:
             opts = FirefoxOptions()
             return webdriver.Firefox(options=opts), "Mozilla Firefox"
 
-        # Specific choice with fallback
         if "edge" in b_lower and "auto" not in b_lower:
             try:
                 return try_edge()
@@ -679,6 +854,35 @@ class AgilicoImporterApp:
 
         return False
 
+    def _prefill_login_customer(self, customer_name: str):
+        """Pre-fills the Target Customer into the username/customer field on the portal sign-in page."""
+        if not customer_name:
+            return
+        time.sleep(1.2)
+        login_input_xpaths = [
+            "//input[@id='Username' or @name='Username']",
+            "//input[@id='UserName' or @name='UserName']",
+            "//input[@id='Customer' or @name='Customer']",
+            "//input[@id='Tenant' or @name='Tenant']",
+            "//input[@id='Account' or @name='Account']",
+            "//input[contains(@placeholder, 'Username') or contains(@placeholder, 'Customer') or contains(@placeholder, 'Account')]",
+            "//form//input[@type='text'][1]",
+            "//input[@type='text'][1]",
+        ]
+        for xpath in login_input_xpaths:
+            try:
+                elems = self.driver.find_elements(By.XPATH, xpath)
+                for el in elems:
+                    if el.is_displayed() and el.is_enabled():
+                        el.click()
+                        el.clear()
+                        el.send_keys(customer_name)
+                        self.log(f"Pre-filled Target Customer '{customer_name}' into login username field.", level="SUCCESS")
+                        return True
+            except Exception:
+                continue
+        return False
+
     def _show_login_dialog_sync(self, customer_name: str, browser_name: str):
         """Displays a modal dialog asking the user to log in and proceed."""
         result = {"ok": False}
@@ -686,16 +890,23 @@ class AgilicoImporterApp:
 
         def _ask():
             if customer_name:
-                cust_info = f"Target Customer: '{customer_name}' (will be switched automatically)"
+                cust_info = (
+                    f"1. On the login screen, enter your Target Customer into the Username field:\n"
+                    f"   👉 '{customer_name}' (automatically pre-filled for you)\n\n"
+                    f"2. Enter your password and click 'Log In'.\n\n"
+                    f"3. Click 'OK' below once you are logged in to start importing contacts."
+                )
             else:
-                cust_info = "Please switch to your target customer and navigate to 'Contacts' in the browser."
+                cust_info = (
+                    "1. Log into your portal account in the browser.\n"
+                    "2. Switch to your target customer and navigate to 'Contacts'.\n"
+                    "3. Click 'OK' when ready to begin."
+                )
 
             res = messagebox.askokcancel(
-                "Action Required - Portal Login",
-                f"{browser_name} has launched and navigated to the Agilico customer portal.\n\n"
-                f"1. Please log in to your portal account in {browser_name}.\n"
-                f"2. {cust_info}\n"
-                "3. Click 'OK' when you are ready to begin.\n\n"
+                "Action Required - Portal Sign-In",
+                f"{browser_name} has launched and opened the portal.\n\n"
+                f"{cust_info}\n\n"
                 "(Click 'Cancel' to abort)",
                 parent=self.root,
             )
@@ -802,32 +1013,42 @@ class AgilicoImporterApp:
             contacts = self._read_contacts_csv(csv_path)
             if not contacts:
                 self.log("No contacts found in CSV file or file is empty.", level="ERROR")
+                self.status_detail_var.set("Error: CSV is empty or invalid.")
                 messagebox.showwarning("Warning", "No contacts found in the specified CSV file.")
                 return
 
             self.log(f"Found {len(contacts)} contacts to import.", level="SUCCESS")
+            self.status_detail_var.set(f"Loaded {len(contacts)} contacts. Initializing {browser_choice}...")
 
             # Step 2: Initialize Web Browser (Edge, Chrome, or Firefox)
             self.log("Detecting and initializing web browser...", level="INFO")
             self.driver, browser_name = self._create_browser_driver(browser_choice)
             self.log(f"Successfully launched {browser_name}.", level="SUCCESS")
+            self.status_detail_var.set(f"{browser_name} active. Navigating to portal...")
 
             # Step 3: Navigate to Agilico Portal
             self.log(f"Navigating to {url}...", level="INFO")
             self.driver.get(url)
 
+            # Step 3b: Pre-fill Target Customer into Username field on login screen if present
+            if customer_name:
+                self._prefill_login_customer(customer_name)
+
             # Step 4: Show Login Prompt Dialog
             self.log("Waiting for user login confirmation...", level="WARNING")
+            self.status_detail_var.set("Waiting for user login in browser...")
             user_confirmed = self._show_login_dialog_sync(customer_name, browser_name)
 
             if not user_confirmed or self.stop_requested:
                 self.log("Import cancelled by user.", level="WARNING")
+                self.status_detail_var.set("Import cancelled by user.")
                 return
 
             wait = WebDriverWait(self.driver, 15)
 
             # Step 4b: Automatic Tenant Switching if Customer Name is provided
             if customer_name:
+                self.status_detail_var.set(f"Switching customer tenant to '{customer_name}'...")
                 try:
                     self._switch_tenant(url, customer_name, wait)
                 except Exception as ex:
@@ -843,6 +1064,10 @@ class AgilicoImporterApp:
                 if self.stop_requested:
                     self.log("Process stopped by user.", level="WARNING")
                     break
+
+                pct = int((idx / len(contacts)) * 100)
+                self.progress_val_var.set(pct)
+                self.status_detail_var.set(f"Processing contact {idx} of {len(contacts)}: {contact['display_name']} ({pct}%)")
 
                 self.log(
                     f"[{idx}/{len(contacts)}] Processing: {contact['display_name']} "
@@ -1081,6 +1306,8 @@ class AgilicoImporterApp:
                     time.sleep(1.0)
 
             # Summary
+            self.progress_val_var.set(100)
+            self.status_detail_var.set(f"Completed! {success_count} succeeded, {fail_count} failed out of {len(contacts)} total.")
             self.log("=" * 45, level="MUTED")
             self.log(f"Import Complete! Success: {success_count}, Failures: {fail_count}, Total: {len(contacts)}", level="SUCCESS" if fail_count == 0 else "WARNING")
             messagebox.showinfo(
@@ -1091,9 +1318,11 @@ class AgilicoImporterApp:
 
         except WebDriverException as wde:
             self.log(f"WebDriver Exception: {str(wde)}", level="ERROR")
+            self.status_detail_var.set("WebDriver Error occurred.")
             messagebox.showerror("WebDriver Error", f"Browser error occurred:\n{str(wde)}", parent=self.root)
         except Exception as e:
             self.log(f"Unexpected error: {str(e)}", level="ERROR")
+            self.status_detail_var.set("Unexpected Error occurred.")
             messagebox.showerror("Error", f"An unexpected error occurred:\n{str(e)}", parent=self.root)
         finally:
             self.root.after(0, lambda: self._set_ui_state(False))
