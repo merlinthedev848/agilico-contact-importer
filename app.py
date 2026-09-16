@@ -953,34 +953,17 @@ class AgilicoImporterApp:
         return False
 
     def _find_add_number_button(self, wait):
-        """Specifically locates the Add Number / New Number button while strictly ignoring Back/Cancel buttons."""
-        # 1. Look for a dedicated Numbers/Phones tab or panel if present
-        try:
-            tabs = self.driver.find_elements(By.XPATH, "//a[contains(translate(., 'NUMBERS', 'numbers'), 'number') or contains(translate(., 'PHONE', 'phone'), 'phone')]")
-            for tab in tabs:
-                if tab.is_displayed() and not self._is_back_or_nav_element(tab):
-                    self._safe_click(self.driver, tab)
-                    time.sleep(4.0)
-                    break
-        except Exception:
-            pass
-
+        """Specifically locates <a href="/ContactNumbers/Add?ContactId=###" class="btn btn-default x-overlay"><i class="fa fa-plus"></i> Add</a>"""
         candidate_xpaths = [
-            # Direct href containing Number
-            "//a[contains(@href, 'Number') and contains(@class, 'x-overlay')]",
-            "//a[contains(@href, 'AddNumber') or contains(@href, 'CreateNumber') or contains(@href, 'NewNumber')]",
-            # Text containing Add Number or New Number
-            "//a[contains(@class, 'btn') and (contains(translate(., 'ADD NUMBER', 'add number'), 'add number') or contains(translate(., 'NEW NUMBER', 'new number'), 'new number'))]",
-            "//button[contains(@class, 'btn') and (contains(translate(., 'ADD NUMBER', 'add number'), 'add number') or contains(translate(., 'NEW NUMBER', 'new number'), 'new number'))]",
-            # Inside a numbers section or grid
-            "//div[contains(@class, 'number') or contains(@id, 'number') or contains(., 'Numbers')]//a[contains(@class, 'x-overlay') or contains(@class, 'btn')]",
-            # x-overlay button with Add or plus icon
-            "//a[contains(@class, 'x-overlay') and (contains(translate(., 'ADD', 'add'), 'add') or contains(translate(., 'NEW', 'new'), 'new') or .//i[contains(@class, 'fa-plus')])]",
-            "//button[contains(@class, 'x-overlay') and (contains(translate(., 'ADD', 'add'), 'add') or contains(translate(., 'NEW', 'new'), 'new') or .//i[contains(@class, 'fa-plus')])]",
-            # Generic btn-default x-overlay (strictly filtered against Back buttons)
-            "//a[contains(@class, 'btn-default') and contains(@class, 'x-overlay')]",
-            "//button[contains(@class, 'btn-default') and contains(@class, 'x-overlay')]",
-            "//*[contains(@class, 'x-overlay')]",
+            # 1. Exact href match for ContactNumbers/Add
+            "//a[contains(@href, '/ContactNumbers/Add') and contains(@class, 'x-overlay')]",
+            "//a[contains(@href, '/ContactNumbers/Add')]",
+            "//a[contains(@href, 'ContactNumbers') and contains(@class, 'btn-default') and contains(@class, 'x-overlay')]",
+            "//a[contains(@href, 'ContactNumbers') and contains(., 'Add')]",
+            # 2. Exact class and text/icon match
+            "//a[contains(@class, 'btn-default') and contains(@class, 'x-overlay') and (contains(., 'Add') or .//i[contains(@class, 'fa-plus')]) and not(contains(., 'Back'))]",
+            "//a[contains(@class, 'x-overlay') and (contains(., 'Add') or .//i[contains(@class, 'fa-plus')]) and not(contains(., 'Back'))]",
+            "//button[contains(@class, 'btn-default') and contains(@class, 'x-overlay') and (contains(., 'Add') or .//i[contains(@class, 'fa-plus')]) and not(contains(., 'Back'))]",
         ]
 
         for xpath in candidate_xpaths:
@@ -996,63 +979,31 @@ class AgilicoImporterApp:
         return None
 
     def _find_modal_number_input(self, wait):
-        """Locates the phone number input strictly within an active popup/modal/overlay form."""
-        modal_xpaths = [
-            "//div[contains(@class, 'modal') and not(contains(@style, 'display: none'))]",
-            "//div[contains(@class, 'x-window') and not(contains(@style, 'display: none'))]",
-            "//div[contains(@class, 'x-overlay-window')]",
-            "//div[contains(@id, 'modal') or contains(@id, 'overlay')]",
-            "//form[contains(@action, 'Number') or contains(@id, 'Number') or contains(., 'Number')]",
-        ]
-
-        # Priority 1: Within active modal container
-        for m_xpath in modal_xpaths:
-            try:
-                modals = self.driver.find_elements(By.XPATH, m_xpath)
-                for modal in modals:
-                    if modal.is_displayed():
-                        inputs = modal.find_elements(By.XPATH, ".//input[not(@type='hidden') and not(@type='button') and not(@type='submit')]")
-                        for inp in inputs:
-                            if inp.is_displayed() and inp.is_enabled():
-                                name_attr = (inp.get_attribute("name") or "").lower()
-                                id_attr = (inp.get_attribute("id") or "").lower()
-                                type_attr = (inp.get_attribute("type") or "").lower()
-                                class_attr = (inp.get_attribute("class") or "").lower()
-                                if type_attr == "search" or "search" in name_attr or "search" in id_attr or "search" in class_attr:
-                                    continue
-                                return inp
-            except Exception:
-                continue
-
-        # Priority 2: Labelled Number input
-        label_xpaths = [
+        """Locates <input class="form-control input-sm text-box single-line" id="Number" name="Number" type="text" value="">"""
+        xpaths = [
+            "//input[@id='Number' or @name='Number']",
+            "//input[contains(@class, 'single-line') and (@id='Number' or @name='Number')]",
+            "//div[contains(@class, 'modal') or contains(@class, 'x-window') or contains(@class, 'x-overlay') or contains(@id, 'overlay')]//input[@id='Number' or @name='Number']",
+            "//form[contains(@action, 'ContactNumbers') or contains(@action, 'Number')]//input[@id='Number' or @name='Number']",
             "//label[contains(translate(., 'NUMBER', 'number'), 'number')]/following::input[not(@type='hidden')][1]",
-            "//span[contains(translate(., 'NUMBER', 'number'), 'number')]/following::input[not(@type='hidden')][1]",
-            "//input[contains(translate(@name, 'NUMBER', 'number'), 'number') or contains(translate(@id, 'NUMBER', 'number'), 'number')]",
         ]
-        for lx in label_xpaths:
+        for xpath in xpaths:
             try:
-                elems = self.driver.find_elements(By.XPATH, lx)
-                for el in elems:
+                elements = self.driver.find_elements(By.XPATH, xpath)
+                for el in elements:
                     if el.is_displayed() and el.is_enabled():
-                        name_attr = (el.get_attribute("name") or "").lower()
-                        id_attr = (el.get_attribute("id") or "").lower()
-                        type_attr = (el.get_attribute("type") or "").lower()
-                        class_attr = (el.get_attribute("class") or "").lower()
-                        if type_attr == "search" or "search" in name_attr or "search" in id_attr or "search" in class_attr:
-                            continue
                         return el
             except Exception:
                 continue
-
         return None
 
-    def _select_type_dropdown(self, driver, wait, target_text: str):
-        """Selects 'Mobile' or 'Work' from the Type dropdown in standard or custom modal forms."""
+    def _select_type_dropdown(self, driver, wait, target_type: str):
+        """Selects Work (value=2) or Mobile (value=3) from <select id='ContactNumberTypeID' name='ContactNumberTypeID'>"""
+        target_value = "3" if target_type.lower() == "mobile" else "2"
         select_xpaths = [
-            "//div[contains(@class, 'modal') or contains(@class, 'x-window') or contains(@class, 'x-overlay')]//select",
-            "//label[contains(translate(text(), 'TYPE', 'type'), 'type')]/following::select[1]",
-            "//select[contains(translate(@name, 'TYPE', 'type'), 'type') or contains(translate(@id, 'TYPE', 'type'), 'type')]",
+            "//select[@id='ContactNumberTypeID' or @name='ContactNumberTypeID']",
+            "//select[contains(@name, 'ContactNumberTypeID') or contains(@id, 'ContactNumberTypeID')]",
+            "//div[contains(@class, 'modal') or contains(@class, 'x-window') or contains(@class, 'x-overlay') or contains(@id, 'overlay')]//select",
             "//select",
         ]
         for xpath in select_xpaths:
@@ -1061,20 +1012,24 @@ class AgilicoImporterApp:
                 for s_elem in select_elements:
                     if s_elem.is_displayed() and s_elem.is_enabled():
                         select_obj = Select(s_elem)
+                        # Try select by value first (2 for Work, 3 for Mobile)
+                        try:
+                            select_obj.select_by_value(target_value)
+                            return True
+                        except Exception:
+                            pass
+                        # Fallback to visible text
                         for option in select_obj.options:
-                            if target_text.lower() in option.text.strip().lower():
+                            if target_type.lower() in option.text.strip().lower():
                                 select_obj.select_by_visible_text(option.text)
                                 return True
             except Exception:
                 continue
 
-        # Custom Dropdown / ExtJS ComboBox / Clickable trigger inside modal
+        # Custom dropdown / ExtJS trigger fallback
         custom_dropdown_xpaths = [
-            "//div[contains(@class, 'modal') or contains(@class, 'x-window') or contains(@class, 'x-overlay')]//*[contains(@class, 'x-form-trigger') or contains(@class, 'x-form-arrow-trigger')]",
-            "//label[contains(translate(text(), 'TYPE', 'type'), 'type')]/following::*[contains(@class, 'x-form-trigger') or contains(@class, 'x-form-arrow-trigger')][1]",
-            "//div[contains(@class, 'x-form-item') and contains(translate(., 'TYPE', 'type'), 'type')]//*[contains(@class, 'x-form-trigger')]",
-            "//label[contains(translate(text(), 'TYPE', 'type'), 'type')]/following::input[1]",
-            "//input[contains(translate(@name, 'TYPE', 'type'), 'type') or contains(translate(@id, 'TYPE', 'type'), 'type')]",
+            "//*[@id='ContactNumberTypeID']//following::*[contains(@class, 'x-form-trigger')][1]",
+            "//div[contains(@class, 'modal') or contains(@class, 'x-window') or contains(@class, 'x-overlay')]//*[contains(@class, 'x-form-trigger')]",
         ]
         for xpath in custom_dropdown_xpaths:
             try:
@@ -1083,28 +1038,37 @@ class AgilicoImporterApp:
                     if trig.is_displayed() and trig.is_enabled():
                         self._safe_click(driver, trig)
                         time.sleep(1.0)
-
-                        option_xpaths = [
-                            f"//li[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text.lower()}')]",
-                            f"//div[contains(@class, 'x-combo-list-item') and contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text.lower()}')]",
-                            f"//div[contains(@class, 'x-boundlist-item') and contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text.lower()}')]",
-                            f"//*[contains(@class, 'dropdown-item') and contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text.lower()}')]",
-                            f"//option[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text.lower()}')]",
-                            f"//*[text()='{target_text}' or text()='{target_text.title()}']",
-                        ]
-                        for opt_xpath in option_xpaths:
-                            try:
-                                opt_elems = driver.find_elements(By.XPATH, opt_xpath)
-                                for o_elem in opt_elems:
-                                    if o_elem.is_displayed():
-                                        self._safe_click(driver, o_elem)
-                                        return True
-                            except Exception:
-                                continue
+                        opt_elems = driver.find_elements(By.XPATH, f"//*[text()='{target_type}' or text()='{target_type.title()}']")
+                        for o_elem in opt_elems:
+                            if o_elem.is_displayed():
+                                self._safe_click(driver, o_elem)
+                                return True
             except Exception:
                 continue
 
         return False
+
+    def _find_save_button(self):
+        """Locates <button type="submit" class="btn btn-primary x-save"><i class="fa fa-save"></i></button>"""
+        save_selectors = [
+            "//button[@type='submit' and contains(@class, 'x-save') and contains(@class, 'btn-primary')]",
+            "//button[@type='submit' and contains(@class, 'x-save')]",
+            "//button[contains(@class, 'btn-primary') and contains(@class, 'x-save')]",
+            "//button[contains(@class, 'x-save') and .//i[contains(@class, 'fa-save')]]",
+            "//button[contains(@class, 'x-save')]",
+            "//a[contains(@class, 'btn-primary') and contains(@class, 'x-save')]",
+            "//a[contains(@class, 'x-save')]",
+        ]
+        for xpath in save_selectors:
+            try:
+                elements = self.driver.find_elements(By.XPATH, xpath)
+                for el in elements:
+                    if el.is_displayed() and el.is_enabled():
+                        if not self._is_back_or_nav_element(el):
+                            return el
+            except Exception:
+                continue
+        return None
 
     def _prefill_login_customer(self, customer_name: str):
         """Pre-fills the Target Customer into the username/customer field on the portal sign-in page."""
@@ -1335,13 +1299,14 @@ class AgilicoImporterApp:
                         self.driver.get(contacts_url)
                         time.sleep(4.0)
 
-                    # 5a. Click the 'Add' Contact button (//a[contains(., 'Add')] | //button[contains(., 'Add')])
+                    # 5a. Click the main 'Add' Contact button
                     add_button_xpath = "//a[contains(., 'Add')] | //button[contains(., 'Add')]"
                     add_btn = None
                     try:
                         add_btn = wait.until(EC.element_to_be_clickable((By.XPATH, add_button_xpath)))
                     except TimeoutException:
                         alt_xpaths = [
+                            "//a[contains(@href, 'Create') or contains(@href, 'Add')]",
                             "//button[contains(translate(., 'ADD', 'add'), 'add')]",
                             "//a[contains(translate(., 'ADD', 'add'), 'add')]",
                             "//span[contains(text(), 'Add')]/ancestor::button[1]",
@@ -1377,8 +1342,7 @@ class AgilicoImporterApp:
                         except TimeoutException:
                             continue
 
-                    # 5c. Populate form fields
-                    # Ensure minimum 5-character requirement
+                    # 5c. Populate Contact Details form fields
                     if contact["display_name"] and len(contact["display_name"]) < 5:
                         contact["display_name"] = contact["display_name"].ljust(5)
 
@@ -1412,108 +1376,63 @@ class AgilicoImporterApp:
 
                     time.sleep(4.0)
 
-                    # 5d. Click the initial save button (.x-save or //button[contains(@class, 'x-save')])
-                    save_selectors = [
-                        (By.CLASS_NAME, "x-save"),
-                        (By.XPATH, "//button[contains(@class, 'x-save')]"),
-                        (By.XPATH, "//a[contains(@class, 'x-save')]"),
-                        (By.XPATH, "//button[contains(., 'Save')]"),
-                        (By.XPATH, "//a[contains(., 'Save')]"),
-                        (By.XPATH, "//span[contains(text(), 'Save')]/ancestor::button[1]"),
-                        (By.XPATH, "//span[contains(text(), 'Save')]/ancestor::a[1]"),
-                    ]
-
-                    save_btn = None
-                    for by_type, selector in save_selectors:
-                        try:
-                            elems = self.driver.find_elements(by_type, selector)
-                            for el in elems:
-                                if el.is_displayed() and el.is_enabled():
-                                    save_btn = el
-                                    break
-                            if save_btn:
-                                break
-                        except Exception:
-                            continue
-
+                    # 5d. Click initial save button: <button type="submit" class="btn btn-primary x-save"><i class="fa fa-save"></i></button>
+                    save_btn = self._find_save_button()
                     if not save_btn:
-                        raise NoSuchElementException("Could not locate the 'Save' button (.x-save).")
+                        raise NoSuchElementException("Could not locate the 'Save' button (<button type='submit' class='btn btn-primary x-save'>).")
 
-                    self.log(f"Saving contact details for {contact['display_name']} (waiting 4 seconds)...", level="INFO")
+                    self.log(f"Saving contact details for {contact['display_name']} (<button class='btn btn-primary x-save'>) (waiting 4 seconds)...", level="INFO")
                     self._safe_click(self.driver, save_btn)
                     time.sleep(4.0)
 
-                    # 5f. If contact has a number, open the 'Add Number' section (strictly avoiding Back button)
+                    # 5e. If contact has a number, open <a href="/ContactNumbers/Add?ContactId=###" class="btn btn-default x-overlay"><i class="fa fa-plus"></i> Add</a>
                     phone_number = contact.get("number", "").strip()
                     if phone_number:
-                        self.log(f"Locating 'Add Number' button for {contact['display_name']} ({phone_number})...", level="INFO")
-                        overlay_btn = self._find_add_number_button(wait)
+                        self.log(f"Locating Add Number link (<a href='/ContactNumbers/Add...' class='btn btn-default x-overlay'>)...", level="INFO")
+                        add_num_btn = self._find_add_number_button(wait)
 
-                        if not overlay_btn:
-                            self.log("Could not locate dedicated 'Add Number' button.", level="WARNING")
+                        if not add_num_btn:
+                            self.log("Could not locate '<a href=\"/ContactNumbers/Add...\" class=\"btn btn-default x-overlay\">' button.", level="WARNING")
                         else:
-                            self.log("Opening 'Add Number' overlay (waiting 4 seconds)...", level="INFO")
-                            self._safe_click(self.driver, overlay_btn)
+                            self.log("Clicking Add Number button (waiting 4 seconds)...", level="INFO")
+                            self._safe_click(self.driver, add_num_btn)
                             time.sleep(4.0)
 
-                            # Locate Number field specifically within the modal/overlay dialog
+                            # Locate Number field: <input id="Number" name="Number" ...>
                             num_elem = self._find_modal_number_input(wait)
 
                             if num_elem:
                                 self._populate_input(self.driver, num_elem, phone_number)
-                                self.log(f"Entered phone number into modal: {phone_number} (waiting 4 seconds)...", level="INFO")
+                                self.log(f"Entered telephone number '{phone_number}' into <input id='Number'> (waiting 4 seconds)...", level="INFO")
                             else:
-                                self.log("Could not locate 'Number' input field in overlay modal.", level="WARNING")
+                                self.log("Could not locate '<input id=\"Number\" name=\"Number\">' field.", level="WARNING")
 
                             time.sleep(4.0)
 
-                            # Determine Type: if starts with 07 (or +447) -> Mobile, else -> Work
-                            norm_num = phone_number.replace(" ", "").replace("-", "")
-                            if norm_num.startswith("07") or norm_num.startswith("+447"):
+                            # Determine Type: 07XXXXXXXXX -> Mobile, non-07 -> Work
+                            clean_num = phone_number.replace(" ", "").replace("-", "").replace("(", "").replace(")", "").strip()
+                            if clean_num.startswith("07") or clean_num.startswith("+447") or clean_num.startswith("447"):
                                 target_type = "Mobile"
                             else:
                                 target_type = "Work"
 
-                            self.log(f"Selecting dropdown type: '{target_type}' (waiting 4 seconds)...", level="INFO")
+                            self.log(f"Selecting dropdown type '{target_type}' in <select id='ContactNumberTypeID'> (waiting 4 seconds)...", level="INFO")
                             selected = self._select_type_dropdown(self.driver, wait, target_type)
                             if not selected:
                                 self.log(f"Could not automatically select dropdown '{target_type}'.", level="WARNING")
 
                             time.sleep(4.0)
 
-                            # Click Save on the Number form (btn btn-primary x-save inside modal)
-                            num_save_selectors = [
-                                (By.XPATH, "//div[contains(@class, 'modal') or contains(@class, 'x-window') or contains(@class, 'x-overlay')]//button[contains(@class, 'btn-primary') and contains(@class, 'x-save')]"),
-                                (By.XPATH, "//div[contains(@class, 'modal') or contains(@class, 'x-window') or contains(@class, 'x-overlay')]//a[contains(@class, 'btn-primary') and contains(@class, 'x-save')]"),
-                                (By.XPATH, "//div[contains(@class, 'modal') or contains(@class, 'x-window') or contains(@class, 'x-overlay')]//button[contains(@class, 'x-save') or contains(., 'Save')]"),
-                                (By.XPATH, "//div[contains(@class, 'modal') or contains(@class, 'x-window') or contains(@class, 'x-overlay')]//a[contains(@class, 'x-save') or contains(., 'Save')]"),
-                                (By.XPATH, "//button[contains(@class, 'btn-primary') and contains(@class, 'x-save')]"),
-                                (By.XPATH, "//a[contains(@class, 'btn-primary') and contains(@class, 'x-save')]"),
-                                (By.XPATH, "//button[contains(@class, 'x-save')]"),
-                                (By.XPATH, "//a[contains(@class, 'x-save')]"),
-                            ]
-
-                            num_save_btn = None
-                            for by_t, sel in num_save_selectors:
-                                try:
-                                    ns_elems = self.driver.find_elements(by_t, sel)
-                                    for el in ns_elems:
-                                        if el.is_displayed() and el.is_enabled():
-                                            if not self._is_back_or_nav_element(el):
-                                                num_save_btn = el
-                                                break
-                                    if num_save_btn:
-                                        break
-                                except Exception:
-                                    continue
+                            # Click Save on Number form: <button type="submit" class="btn btn-primary x-save"><i class="fa fa-save"></i></button>
+                            num_save_btn = self._find_save_button()
 
                             if num_save_btn:
-                                self.log(f"Saving phone number ({target_type}: {phone_number}) (waiting 4 seconds)...", level="INFO")
+                                self.log(f"Saving telephone number ({target_type}: {phone_number}) via <button class='btn btn-primary x-save'> (waiting 4 seconds)...", level="INFO")
                                 self._safe_click(self.driver, num_save_btn)
                                 time.sleep(4.0)
-                                self.log(f"Successfully saved phone number ({target_type}: {phone_number})", level="SUCCESS")
+                                self.log(f"Successfully saved telephone number ({target_type}: {phone_number})", level="SUCCESS")
                             else:
-                                self.log("Could not locate 'Save' button for number modal form.", level="WARNING")
+                                self.log("Could not locate 'Save' button (<button class='btn btn-primary x-save'>) for number form.", level="WARNING")
 
                     success_count += 1
                     self.log(f"Successfully completed contact {idx}/{len(contacts)}: {contact['display_name']}", level="SUCCESS")
