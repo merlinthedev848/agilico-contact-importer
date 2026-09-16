@@ -37,11 +37,33 @@ from selenium.common.exceptions import (
 
 
 class AgilicoImporterApp:
+    # Ag-Diag Design Tokens
+    COLOR_NAVY = "#000033"
+    COLOR_BG = "#f5f6fa"
+    COLOR_CARD = "#ffffff"
+    COLOR_BORDER = "#e2e8f0"
+    COLOR_TEXT_DARK = "#1e293b"
+    COLOR_TEXT_MUTED = "#64748b"
+    COLOR_GREEN = "#00b862"
+    COLOR_GREEN_HOVER = "#00d672"
+    COLOR_RED = "#ef4444"
+    COLOR_RED_HOVER = "#dc2626"
+    COLOR_BLUE = "#3b82f6"
+    COLOR_LOG_BG = "#0f172a"
+
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Agilico Contact Importer")
-        self.root.geometry("780x720")
-        self.root.minsize(700, 580)
+        self.root.geometry("800x740")
+        self.root.minsize(720, 600)
+
+        # Set App Icon if present
+        icon_path = os.path.join(os.path.dirname(__file__), "logo.ico")
+        if os.path.exists(icon_path):
+            try:
+                self.root.iconbitmap(icon_path)
+            except Exception:
+                pass
 
         # State variables
         self.csv_path_var = tk.StringVar()
@@ -63,59 +85,136 @@ class AgilicoImporterApp:
         except Exception:
             pass
 
-        # Colors & Fonts
-        bg_main = "#f5f6f8"
-        self.root.configure(bg=bg_main)
+        self.root.configure(bg=self.COLOR_BG)
 
-        header_frame = tk.Frame(self.root, bg="#1e293b", padx=20, pady=16)
+        # Style Combobox and Entry
+        style.configure("TCombobox", fieldbackground="#ffffff", background="#ffffff")
+        style.configure("TEntry", fieldbackground="#ffffff")
+
+        # --- 1. Top Agilico Brand Header ---
+        header_container = tk.Frame(self.root, bg=self.COLOR_NAVY)
+        header_container.pack(fill=tk.X)
+
+        header_frame = tk.Frame(header_container, bg=self.COLOR_NAVY, padx=24, pady=18)
         header_frame.pack(fill=tk.X)
 
+        header_top_row = tk.Frame(header_frame, bg=self.COLOR_NAVY)
+        header_top_row.pack(fill=tk.X)
+
         title_label = tk.Label(
-            header_frame,
+            header_top_row,
             text="Agilico Contact Importer",
             font=("Segoe UI", 16, "bold"),
             fg="#ffffff",
-            bg="#1e293b",
+            bg=self.COLOR_NAVY,
         )
-        title_label.pack(anchor="w")
+        title_label.pack(side=tk.LEFT)
+
+        # Green Pill Badge
+        badge_label = tk.Label(
+            header_top_row,
+            text=" AUTOMATION TOOL ",
+            font=("Segoe UI", 8, "bold"),
+            fg="#ffffff",
+            bg=self.COLOR_GREEN,
+            padx=6,
+            pady=2,
+        )
+        badge_label.pack(side=tk.LEFT, padx=(10, 0), pady=(2, 0))
 
         subtitle_label = tk.Label(
             header_frame,
             text="Automated Tenant Switching, Contact Creation & Phone Number Mapping",
             font=("Segoe UI", 9),
             fg="#94a3b8",
-            bg="#1e293b",
+            bg=self.COLOR_NAVY,
         )
-        subtitle_label.pack(anchor="w")
+        subtitle_label.pack(anchor="w", pady=(4, 0))
 
-        # Main Content Frame
-        content_frame = ttk.Frame(self.root, padding="16")
+        # Agilico Green Accent Strip
+        green_strip = tk.Frame(header_container, bg=self.COLOR_GREEN, height=3)
+        green_strip.pack(fill=tk.X)
+
+        # --- 2. Main Content Canvas ---
+        content_frame = tk.Frame(self.root, bg=self.COLOR_BG, padx=20, pady=16)
         content_frame.pack(fill=tk.BOTH, expand=True)
 
-        # --- Section 1: Configuration ---
-        config_frame = ttk.LabelFrame(content_frame, text=" Configuration ", padding="12")
-        config_frame.pack(fill=tk.X, pady=(0, 12))
+        # --- Card 1: Configuration Card ---
+        card_config = tk.Frame(
+            content_frame,
+            bg=self.COLOR_CARD,
+            highlightbackground=self.COLOR_BORDER,
+            highlightthickness=1,
+            padx=18,
+            pady=14,
+        )
+        card_config.pack(fill=tk.X, pady=(0, 14))
+
+        card_title = tk.Label(
+            card_config,
+            text="Configuration & Settings",
+            font=("Segoe UI", 11, "bold"),
+            fg=self.COLOR_TEXT_DARK,
+            bg=self.COLOR_CARD,
+        )
+        card_title.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 12))
 
         # Base URL Row
-        url_label = ttk.Label(config_frame, text="Agilico Base URL:", font=("Segoe UI", 9, "bold"))
-        url_label.grid(row=0, column=0, sticky="w", pady=(0, 6))
+        url_label = tk.Label(
+            card_config,
+            text="Agilico Base URL:",
+            font=("Segoe UI", 9, "bold"),
+            fg=self.COLOR_TEXT_DARK,
+            bg=self.COLOR_CARD,
+        )
+        url_label.grid(row=1, column=0, sticky="w", pady=5)
 
-        self.url_entry = ttk.Entry(config_frame, textvariable=self.url_var, font=("Segoe UI", 10))
-        self.url_entry.grid(row=0, column=1, sticky="ew", padx=(8, 0), pady=(0, 6))
+        self.url_entry = tk.Entry(
+            card_config,
+            textvariable=self.url_var,
+            font=("Segoe UI", 10),
+            bg="#ffffff",
+            fg=self.COLOR_TEXT_DARK,
+            relief=tk.SOLID,
+            bd=1,
+            highlightthickness=0,
+        )
+        self.url_entry.grid(row=1, column=1, sticky="ew", padx=(10, 0), pady=5, ipady=4)
 
-        # Customer Name Row (Tenant Switch)
-        cust_label = ttk.Label(config_frame, text="Target Customer:", font=("Segoe UI", 9, "bold"))
-        cust_label.grid(row=1, column=0, sticky="w", pady=(0, 6))
+        # Target Customer Row
+        cust_label = tk.Label(
+            card_config,
+            text="Target Customer:",
+            font=("Segoe UI", 9, "bold"),
+            fg=self.COLOR_TEXT_DARK,
+            bg=self.COLOR_CARD,
+        )
+        cust_label.grid(row=2, column=0, sticky="w", pady=5)
 
-        self.cust_entry = ttk.Entry(config_frame, textvariable=self.customer_var, font=("Segoe UI", 10))
-        self.cust_entry.grid(row=1, column=1, sticky="ew", padx=(8, 0), pady=(0, 6))
+        self.cust_entry = tk.Entry(
+            card_config,
+            textvariable=self.customer_var,
+            font=("Segoe UI", 10),
+            bg="#ffffff",
+            fg=self.COLOR_TEXT_DARK,
+            relief=tk.SOLID,
+            bd=1,
+            highlightthickness=0,
+        )
+        self.cust_entry.grid(row=2, column=1, sticky="ew", padx=(10, 0), pady=5, ipady=4)
 
-        # Browser Selection Row
-        browser_label = ttk.Label(config_frame, text="Web Browser:", font=("Segoe UI", 9, "bold"))
-        browser_label.grid(row=2, column=0, sticky="w", pady=(0, 6))
+        # Web Browser Row
+        browser_label = tk.Label(
+            card_config,
+            text="Web Browser:",
+            font=("Segoe UI", 9, "bold"),
+            fg=self.COLOR_TEXT_DARK,
+            bg=self.COLOR_CARD,
+        )
+        browser_label.grid(row=3, column=0, sticky="w", pady=5)
 
         self.browser_combo = ttk.Combobox(
-            config_frame,
+            card_config,
             textvariable=self.browser_var,
             values=[
                 "Microsoft Edge (Default)",
@@ -126,38 +225,66 @@ class AgilicoImporterApp:
             state="readonly",
             font=("Segoe UI", 10),
         )
-        self.browser_combo.grid(row=2, column=1, sticky="ew", padx=(8, 0), pady=(0, 6))
+        self.browser_combo.grid(row=3, column=1, sticky="ew", padx=(10, 0), pady=5, ipady=3)
 
-        # CSV File Row
-        csv_label = ttk.Label(config_frame, text="Contacts CSV File:", font=("Segoe UI", 9, "bold"))
-        csv_label.grid(row=3, column=0, sticky="w", pady=(6, 0))
+        # CSV File Picker Row
+        csv_label = tk.Label(
+            card_config,
+            text="Contacts CSV File:",
+            font=("Segoe UI", 9, "bold"),
+            fg=self.COLOR_TEXT_DARK,
+            bg=self.COLOR_CARD,
+        )
+        csv_label.grid(row=4, column=0, sticky="w", pady=5)
 
-        csv_picker_frame = ttk.Frame(config_frame)
-        csv_picker_frame.grid(row=3, column=1, sticky="ew", padx=(8, 0), pady=(6, 0))
+        csv_picker_frame = tk.Frame(card_config, bg=self.COLOR_CARD)
+        csv_picker_frame.grid(row=4, column=1, sticky="ew", padx=(10, 0), pady=5)
 
-        self.csv_entry = ttk.Entry(csv_picker_frame, textvariable=self.csv_path_var, font=("Segoe UI", 10))
-        self.csv_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.csv_entry = tk.Entry(
+            csv_picker_frame,
+            textvariable=self.csv_path_var,
+            font=("Segoe UI", 10),
+            bg="#ffffff",
+            fg=self.COLOR_TEXT_DARK,
+            relief=tk.SOLID,
+            bd=1,
+            highlightthickness=0,
+        )
+        self.csv_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=4)
 
-        self.browse_btn = ttk.Button(csv_picker_frame, text="Browse...", command=self._browse_csv)
-        self.browse_btn.pack(side=tk.RIGHT, padx=(6, 0))
+        self.browse_btn = tk.Button(
+            csv_picker_frame,
+            text="Browse...",
+            command=self._browse_csv,
+            bg=self.COLOR_NAVY,
+            fg="#ffffff",
+            activebackground="#1e1e66",
+            activeforeground="#ffffff",
+            font=("Segoe UI", 9, "bold"),
+            padx=14,
+            pady=3,
+            relief=tk.FLAT,
+            cursor="hand2",
+        )
+        self.browse_btn.pack(side=tk.RIGHT, padx=(8, 0))
 
-        config_frame.columnconfigure(1, weight=1)
+        card_config.columnconfigure(1, weight=1)
 
-        # --- Section 2: Actions ---
-        action_frame = ttk.Frame(content_frame)
-        action_frame.pack(fill=tk.X, pady=(0, 12))
+        # --- Section 2: Actions Bar ---
+        action_frame = tk.Frame(content_frame, bg=self.COLOR_BG)
+        action_frame.pack(fill=tk.X, pady=(0, 14))
 
         self.start_btn = tk.Button(
             action_frame,
-            text="Start Import",
+            text="▶  Start Import",
             command=self._start_import_thread,
-            bg="#2563eb",
+            bg=self.COLOR_GREEN,
             fg="#ffffff",
-            activebackground="#1d4ed8",
+            activebackground=self.COLOR_GREEN_HOVER,
             activeforeground="#ffffff",
             font=("Segoe UI", 10, "bold"),
-            padx=18,
-            pady=6,
+            padx=20,
+            pady=8,
             relief=tk.FLAT,
             cursor="hand2",
         )
@@ -165,52 +292,75 @@ class AgilicoImporterApp:
 
         self.stop_btn = tk.Button(
             action_frame,
-            text="Stop / Cancel",
+            text="⏹  Stop / Cancel",
             command=self._stop_import,
             state=tk.DISABLED,
-            bg="#dc2626",
+            bg=self.COLOR_RED,
             fg="#ffffff",
-            activebackground="#b91c1c",
+            activebackground=self.COLOR_RED_HOVER,
             activeforeground="#ffffff",
             font=("Segoe UI", 10, "bold"),
-            padx=16,
-            pady=6,
+            padx=18,
+            pady=8,
             relief=tk.FLAT,
             cursor="hand2",
         )
-        self.stop_btn.pack(side=tk.LEFT, padx=(10, 0))
+        self.stop_btn.pack(side=tk.LEFT, padx=(12, 0))
 
-        self.status_var = tk.StringVar(value="Ready")
+        self.status_var = tk.StringVar(value="Status: Ready")
         self.status_badge = tk.Label(
             action_frame,
             textvariable=self.status_var,
-            font=("Segoe UI", 9, "italic"),
-            fg="#64748b",
-            bg=bg_main,
+            font=("Segoe UI", 9, "bold"),
+            fg=self.COLOR_TEXT_MUTED,
+            bg="#e2e8f0",
+            padx=12,
+            pady=6,
         )
-        self.status_badge.pack(side=tk.RIGHT, pady=6)
+        self.status_badge.pack(side=tk.RIGHT)
 
-        # --- Section 3: Status Log Window ---
-        log_frame = ttk.LabelFrame(content_frame, text=" Activity Log ", padding="8")
-        log_frame.pack(fill=tk.BOTH, expand=True)
+        # --- Card 3: Activity Log Card ---
+        card_log = tk.Frame(
+            content_frame,
+            bg=self.COLOR_CARD,
+            highlightbackground=self.COLOR_BORDER,
+            highlightthickness=1,
+            padx=14,
+            pady=12,
+        )
+        card_log.pack(fill=tk.BOTH, expand=True)
+
+        log_header = tk.Frame(card_log, bg=self.COLOR_CARD)
+        log_header.pack(fill=tk.X, pady=(0, 8))
+
+        log_title = tk.Label(
+            log_header,
+            text="Live Activity & Diagnostics Log",
+            font=("Segoe UI", 10, "bold"),
+            fg=self.COLOR_TEXT_DARK,
+            bg=self.COLOR_CARD,
+        )
+        log_title.pack(side=tk.LEFT)
 
         self.log_text = scrolledtext.ScrolledText(
-            log_frame,
+            card_log,
             wrap=tk.WORD,
             font=("Consolas", 9),
-            bg="#111827",
-            fg="#e5e7eb",
+            bg=self.COLOR_LOG_BG,
+            fg="#e2e8f0",
             insertbackground="#ffffff",
             relief=tk.FLAT,
+            padx=8,
+            pady=8,
         )
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
-        # Setup custom text tags for styling
-        self.log_text.tag_config("INFO", foreground="#60a5fa")
-        self.log_text.tag_config("SUCCESS", foreground="#34d399")
-        self.log_text.tag_config("WARNING", foreground="#fbbf24")
-        self.log_text.tag_config("ERROR", foreground="#f87171")
-        self.log_text.tag_config("MUTED", foreground="#6b7280")
+        # Color Tags matching ag-diag scheme
+        self.log_text.tag_config("INFO", foreground="#38bdf8")
+        self.log_text.tag_config("SUCCESS", foreground=self.COLOR_GREEN)
+        self.log_text.tag_config("WARNING", foreground="#f59e0b")
+        self.log_text.tag_config("ERROR", foreground=self.COLOR_RED)
+        self.log_text.tag_config("MUTED", foreground=self.COLOR_TEXT_MUTED)
 
         self.log("Ready. Select contacts.csv, enter target customer (optional), and click 'Start Import'.", level="MUTED")
 
@@ -247,23 +397,25 @@ class AgilicoImporterApp:
     def _set_ui_state(self, is_running: bool):
         self.is_running = is_running
         if is_running:
-            self.start_btn.config(state=tk.DISABLED, bg="#93c5fd", cursor="arrow")
-            self.stop_btn.config(state=tk.NORMAL, bg="#dc2626", cursor="hand2")
+            self.start_btn.config(state=tk.DISABLED, bg="#94d3a2", cursor="arrow")
+            self.stop_btn.config(state=tk.NORMAL, bg=self.COLOR_RED, cursor="hand2")
             self.browse_btn.config(state=tk.DISABLED)
             self.url_entry.config(state=tk.DISABLED)
             self.cust_entry.config(state=tk.DISABLED)
             self.browser_combo.config(state=tk.DISABLED)
             self.csv_entry.config(state=tk.DISABLED)
-            self.status_var.set("Running...")
+            self.status_var.set("Status: Running...")
+            self.status_badge.config(bg="#dbeafe", fg="#1d4ed8")
         else:
-            self.start_btn.config(state=tk.NORMAL, bg="#2563eb", cursor="hand2")
+            self.start_btn.config(state=tk.NORMAL, bg=self.COLOR_GREEN, cursor="hand2")
             self.stop_btn.config(state=tk.DISABLED, bg="#fca5a5", cursor="arrow")
             self.browse_btn.config(state=tk.NORMAL)
             self.url_entry.config(state=tk.NORMAL)
             self.cust_entry.config(state=tk.NORMAL)
             self.browser_combo.config(state="readonly")
             self.csv_entry.config(state=tk.NORMAL)
-            self.status_var.set("Idle / Ready")
+            self.status_var.set("Status: Ready")
+            self.status_badge.config(bg="#e2e8f0", fg=self.COLOR_TEXT_MUTED)
 
     def _stop_import(self):
         if self.is_running:
@@ -356,13 +508,9 @@ class AgilicoImporterApp:
         return contacts
 
     def _create_browser_driver(self, browser_choice: str):
-        """
-        Attempts to launch the user's selected or available browser (Edge, Chrome, Firefox).
-        Modern Selenium handles driver management natively.
-        """
+        """Attempts to launch the user's selected or available browser (Edge, Chrome, Firefox)."""
         b_lower = browser_choice.lower()
 
-        # Browser launching helper functions
         def try_edge():
             opts = EdgeOptions()
             opts.add_argument("--start-maximized")
@@ -385,7 +533,7 @@ class AgilicoImporterApp:
             opts = FirefoxOptions()
             return webdriver.Firefox(options=opts), "Mozilla Firefox"
 
-        # Specific user choice with fallback
+        # Specific choice with fallback
         if "edge" in b_lower and "auto" not in b_lower:
             try:
                 return try_edge()
@@ -402,7 +550,6 @@ class AgilicoImporterApp:
             except Exception as e:
                 self.log(f"Mozilla Firefox launch issue ({str(e).splitlines()[0]}). Trying other browsers...", level="WARNING")
 
-        # Auto-Detect: Try Microsoft Edge first (native on Windows), then Chrome, then Firefox
         attempts = [
             ("Microsoft Edge", try_edge),
             ("Google Chrome", try_chrome),
