@@ -20,7 +20,6 @@ from selenium.common.exceptions import (
     NoSuchElementException,
     WebDriverException,
     ElementClickInterceptedException,
-    UnexpectedTagNameException,
 )
 from webdriver_manager.chrome import ChromeDriverManager
 
@@ -29,12 +28,13 @@ class AgilicoImporterApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Agilico Contact Importer")
-        self.root.geometry("740x640")
-        self.root.minsize(640, 520)
+        self.root.geometry("760x690")
+        self.root.minsize(680, 560)
 
         # State variables
         self.csv_path_var = tk.StringVar()
-        self.url_var = tk.StringVar(value="https://")
+        self.url_var = tk.StringVar(value="https://customerportal.hp2k.co.uk/")
+        self.customer_var = tk.StringVar()
         self.is_running = False
         self.stop_requested = False
         self.log_queue = queue.Queue()
@@ -68,7 +68,7 @@ class AgilicoImporterApp:
 
         subtitle_label = tk.Label(
             header_frame,
-            text="Automated CSV batch contact and phone number creation for Agilico portal",
+            text="Automated Tenant Switching, Contact Creation & Phone Number Mapping",
             font=("Segoe UI", 9),
             fg="#94a3b8",
             bg="#1e293b",
@@ -90,12 +90,19 @@ class AgilicoImporterApp:
         self.url_entry = ttk.Entry(config_frame, textvariable=self.url_var, font=("Segoe UI", 10))
         self.url_entry.grid(row=0, column=1, sticky="ew", padx=(8, 0), pady=(0, 6))
 
+        # Customer Name Row (Tenant Switch)
+        cust_label = ttk.Label(config_frame, text="Target Customer:", font=("Segoe UI", 9, "bold"))
+        cust_label.grid(row=1, column=0, sticky="w", pady=(0, 6))
+
+        self.cust_entry = ttk.Entry(config_frame, textvariable=self.customer_var, font=("Segoe UI", 10))
+        self.cust_entry.grid(row=1, column=1, sticky="ew", padx=(8, 0), pady=(0, 6))
+
         # CSV File Row
         csv_label = ttk.Label(config_frame, text="Contacts CSV File:", font=("Segoe UI", 9, "bold"))
-        csv_label.grid(row=1, column=0, sticky="w", pady=(6, 0))
+        csv_label.grid(row=2, column=0, sticky="w", pady=(6, 0))
 
         csv_picker_frame = ttk.Frame(config_frame)
-        csv_picker_frame.grid(row=1, column=1, sticky="ew", padx=(8, 0), pady=(6, 0))
+        csv_picker_frame.grid(row=2, column=1, sticky="ew", padx=(8, 0), pady=(6, 0))
 
         self.csv_entry = ttk.Entry(csv_picker_frame, textvariable=self.csv_path_var, font=("Segoe UI", 10))
         self.csv_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -174,7 +181,7 @@ class AgilicoImporterApp:
         self.log_text.tag_config("ERROR", foreground="#f87171")
         self.log_text.tag_config("MUTED", foreground="#6b7280")
 
-        self.log("Ready. Select contacts.csv, enter Agilico base URL, and click 'Start Import'.", level="MUTED")
+        self.log("Ready. Select contacts.csv, enter target customer (optional), and click 'Start Import'.", level="MUTED")
 
     def _browse_csv(self):
         filename = filedialog.askopenfilename(
@@ -213,6 +220,7 @@ class AgilicoImporterApp:
             self.stop_btn.config(state=tk.NORMAL, bg="#dc2626", cursor="hand2")
             self.browse_btn.config(state=tk.DISABLED)
             self.url_entry.config(state=tk.DISABLED)
+            self.cust_entry.config(state=tk.DISABLED)
             self.csv_entry.config(state=tk.DISABLED)
             self.status_var.set("Running...")
         else:
@@ -220,6 +228,7 @@ class AgilicoImporterApp:
             self.stop_btn.config(state=tk.DISABLED, bg="#fca5a5", cursor="arrow")
             self.browse_btn.config(state=tk.NORMAL)
             self.url_entry.config(state=tk.NORMAL)
+            self.cust_entry.config(state=tk.NORMAL)
             self.csv_entry.config(state=tk.NORMAL)
             self.status_var.set("Idle / Ready")
 
@@ -230,6 +239,7 @@ class AgilicoImporterApp:
 
     def _start_import_thread(self):
         url = self.url_var.get().strip()
+        customer_name = self.customer_var.get().strip()
         csv_path = self.csv_path_var.get().strip()
 
         if not url or url == "https://":
@@ -243,7 +253,7 @@ class AgilicoImporterApp:
         self._set_ui_state(True)
         self.stop_requested = False
 
-        thread = threading.Thread(target=self._run_automation, args=(url, csv_path), daemon=True)
+        thread = threading.Thread(target=self._run_automation, args=(url, customer_name, csv_path), daemon=True)
         thread.start()
 
     def _read_contacts_csv(self, csv_path: str):
@@ -287,7 +297,6 @@ class AgilicoImporterApp:
 
                 # Enforce 5-character minimum requirement for Contact Name / Display Name
                 if display_name and len(display_name) < 5:
-                    # Pad name to satisfy Agilico 5-character minimum rule
                     display_name = display_name.ljust(5)
 
                 if first_name and not last_name and len(first_name) < 5:
@@ -310,10 +319,7 @@ class AgilicoImporterApp:
         return contacts
 
     def _find_input_field(self, driver, wait, field_identifiers):
-        """
-        Attempts multiple robust strategies to locate the form input for a specific field.
-        field_identifiers: list of potential search terms like ['first name', 'firstname', 'number']
-        """
+        """Attempts multiple robust strategies to locate the form input for a specific field."""
         for term in field_identifiers:
             t_lower = term.lower()
 
@@ -366,7 +372,6 @@ class AgilicoImporterApp:
 
     def _select_type_dropdown(self, driver, wait, target_text: str):
         """Selects 'Mobile' or 'Work' from the Type dropdown in standard or custom forms."""
-        # Strategy 1: Standard HTML <select> tag
         select_xpaths = [
             "//label[contains(translate(text(), 'TYPE', 'type'), 'type')]/following::select[1]",
             "//select[contains(translate(@name, 'TYPE', 'type'), 'type') or contains(translate(@id, 'TYPE', 'type'), 'type')]",
@@ -385,7 +390,7 @@ class AgilicoImporterApp:
             except Exception:
                 continue
 
-        # Strategy 2: Custom Dropdown / ExtJS ComboBox / Clickable trigger
+        # Custom Dropdown / ExtJS ComboBox / Clickable trigger
         custom_dropdown_xpaths = [
             "//label[contains(translate(text(), 'TYPE', 'type'), 'type')]/following::input[1]",
             "//label[contains(translate(text(), 'TYPE', 'type'), 'type')]/following::*[contains(@class, 'x-form-trigger') or contains(@class, 'x-form-arrow-trigger')][1]",
@@ -402,7 +407,6 @@ class AgilicoImporterApp:
                         trig.click()
                         time.sleep(0.3)
 
-                        # Look for dropdown option list items
                         option_xpaths = [
                             f"//li[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text.lower()}')]",
                             f"//div[contains(@class, 'x-combo-list-item') and contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text.lower()}')]",
@@ -425,18 +429,23 @@ class AgilicoImporterApp:
 
         return False
 
-    def _show_login_dialog_sync(self):
+    def _show_login_dialog_sync(self, customer_name: str):
         """Displays a modal dialog asking the user to log in and proceed."""
         result = {"ok": False}
         evt = threading.Event()
 
         def _ask():
+            if customer_name:
+                cust_info = f"Target Customer: '{customer_name}' (will be switched automatically)"
+            else:
+                cust_info = "Please switch to your target customer and navigate to 'Contacts' in Chrome."
+
             res = messagebox.askokcancel(
                 "Action Required - Agilico Login",
-                "Chrome has launched and navigated to the Agilico portal.\n\n"
-                "1. Please log in to your account in Chrome.\n"
-                "2. Navigate to the 'Contacts' list view.\n"
-                "3. Click 'OK' when you are ready to begin importing contacts.\n\n"
+                "Chrome has launched and navigated to the Agilico customer portal.\n\n"
+                "1. Please log in to your portal account in Chrome.\n"
+                f"2. {cust_info}\n"
+                "3. Click 'OK' when you are ready to begin.\n\n"
                 "(Click 'Cancel' to abort)",
                 parent=self.root,
             )
@@ -447,7 +456,96 @@ class AgilicoImporterApp:
         evt.wait()
         return result["ok"]
 
-    def _run_automation(self, url: str, csv_path: str):
+    def _switch_tenant(self, base_url: str, customer_name: str, wait: WebDriverWait):
+        """Navigates to ChangeTenant, searches for customer_name, and clicks TargetCustomer pencil button."""
+        change_tenant_url = f"{base_url.rstrip('/')}/Account/ChangeTenant"
+        self.log(f"Navigating to ChangeTenant page: {change_tenant_url}...", level="INFO")
+        self.driver.get(change_tenant_url)
+        time.sleep(1.5)
+
+        # Locate search box
+        search_xpaths = [
+            "//input[@type='search']",
+            "//input[contains(@placeholder, 'Search') or contains(@placeholder, 'Filter')]",
+            "//input[contains(@class, 'search') or contains(@class, 'filter')]",
+            "//input[contains(@class, 'form-control')]",
+            "//input",
+        ]
+
+        search_box = None
+        for sx in search_xpaths:
+            try:
+                elems = self.driver.find_elements(By.XPATH, sx)
+                for el in elems:
+                    if el.is_displayed() and el.is_enabled():
+                        search_box = el
+                        break
+                if search_box:
+                    break
+            except Exception:
+                continue
+
+        if search_box:
+            self.log(f"Filtering customer search for: '{customer_name}'...", level="INFO")
+            search_box.clear()
+            search_box.send_keys(customer_name)
+            time.sleep(1.8)
+        else:
+            self.log("Could not locate search box on ChangeTenant page. Searching rows directly...", level="WARNING")
+
+        # Find TargetCustomer pencil button in matching row
+        target_link = None
+        target_xpaths = [
+            f"//tr[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{customer_name.lower()}')]//a[contains(@href, 'TargetCustomer')]",
+            f"//tr[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{customer_name.lower()}')]//a[contains(@class, 'btn') and .//i[contains(@class, 'fa-pencil')]]",
+            "//a[contains(@href, 'TargetCustomer')]",
+            "//a[contains(@class, 'btn') and .//i[contains(@class, 'fa-pencil')]]",
+        ]
+
+        for tx in target_xpaths:
+            try:
+                elems = self.driver.find_elements(By.XPATH, tx)
+                for el in elems:
+                    if el.is_displayed():
+                        target_link = el
+                        break
+                if target_link:
+                    break
+            except Exception:
+                continue
+
+        if not target_link:
+            raise NoSuchElementException(f"Could not find customer switch button for '{customer_name}' on ChangeTenant page.")
+
+        self.log(f"Found customer target button for '{customer_name}'. Switching tenant...", level="SUCCESS")
+        try:
+            target_link.click()
+        except ElementClickInterceptedException:
+            self.driver.execute_script("arguments[0].click();", target_link)
+
+        time.sleep(2.5)
+
+        # Ensure we navigate to Contacts page
+        contacts_url = f"{base_url.rstrip('/')}/Contacts"
+        current_url = self.driver.current_url
+        if "contact" not in current_url.lower():
+            self.log("Navigating to customer Contacts view...", level="INFO")
+            # Try clicking Contacts nav link or navigating directly
+            try:
+                contact_nav = self.driver.find_element(By.XPATH, "//a[contains(., 'Contacts') or contains(@href, 'Contact')]")
+                if contact_nav.is_displayed():
+                    contact_nav.click()
+                    time.sleep(1.5)
+                else:
+                    self.driver.get(contacts_url)
+                    time.sleep(1.5)
+            except Exception:
+                self.driver.get(contacts_url)
+                time.sleep(1.5)
+
+        self.log("Customer tenant switched successfully. Ready on Contacts view.", level="SUCCESS")
+
+    def _run_automation(self, url: str, customer_name: str, csv_path: str):
         self.log("Starting automation workflow...", level="INFO")
         try:
             # Step 1: Read CSV
@@ -482,15 +580,23 @@ class AgilicoImporterApp:
             self.driver.get(url)
 
             # Step 4: Show Login Prompt Dialog
-            self.log("Waiting for user login and navigation to 'Contacts' list view...", level="WARNING")
-            user_confirmed = self._show_login_dialog_sync()
+            self.log("Waiting for user login confirmation...", level="WARNING")
+            user_confirmed = self._show_login_dialog_sync(customer_name)
 
             if not user_confirmed or self.stop_requested:
                 self.log("Import cancelled by user.", level="WARNING")
                 return
 
-            self.log("User confirmed. Starting contact import process...", level="SUCCESS")
             wait = WebDriverWait(self.driver, 15)
+
+            # Step 4b: Automatic Tenant Switching if Customer Name is provided
+            if customer_name:
+                try:
+                    self._switch_tenant(url, customer_name, wait)
+                except Exception as ex:
+                    self.log(f"Tenant switch error: {str(ex)}. Please ensure you are on the Contacts page.", level="WARNING")
+
+            self.log("Starting contact import process...", level="SUCCESS")
 
             success_count = 0
             fail_count = 0
@@ -667,7 +773,6 @@ class AgilicoImporterApp:
                                 self.driver, wait, ["number", "phone", "telephone", "num"]
                             )
                             if not num_elem:
-                                # Try first visible input inside the Add Number section
                                 try:
                                     inputs = self.driver.find_elements(By.XPATH, "//div[contains(., 'Add Number')]//input")
                                     for inp in inputs:
