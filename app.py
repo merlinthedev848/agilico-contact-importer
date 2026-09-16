@@ -277,8 +277,21 @@ class AgilicoImporterApp:
                 phone_number = row.get(field_map.get("number", "Number"), "").strip()
 
                 # Generate Display Name fallback if blank
-                if not display_name and (first_name or last_name):
-                    display_name = f"{first_name} {last_name}".strip()
+                if not display_name:
+                    if first_name and last_name:
+                        display_name = f"{first_name} {last_name}".strip()
+                    elif first_name:
+                        display_name = first_name
+                    elif last_name:
+                        display_name = last_name
+
+                # Enforce 5-character minimum requirement for Contact Name / Display Name
+                if display_name and len(display_name) < 5:
+                    # Pad name to satisfy Agilico 5-character minimum rule
+                    display_name = display_name.ljust(5)
+
+                if first_name and not last_name and len(first_name) < 5:
+                    first_name = first_name.ljust(5)
 
                 # Fallback phone number from speed dial if number not specifically provided
                 if not phone_number and speed_dial and len(speed_dial) >= 5:
@@ -540,6 +553,10 @@ class AgilicoImporterApp:
                             continue
 
                     # 5c. Populate form fields
+                    # Ensure minimum 5-character requirement
+                    if contact["display_name"] and len(contact["display_name"]) < 5:
+                        contact["display_name"] = contact["display_name"].ljust(5)
+
                     # First Name
                     fn_elem = self._find_input_field(
                         self.driver, wait, ["first name", "firstname", "first_name", "fname"]
