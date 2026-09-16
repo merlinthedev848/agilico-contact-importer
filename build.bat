@@ -14,9 +14,14 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b %ERRORLEVEL%
 )
 
-echo.
 echo [2/2] Compiling app.py into a single standalone executable...
-pyinstaller --onefile --noconsole --collect-all selenium --name "AgilicoContactImporter" app.py
+pyinstaller --clean --noconfirm AgilicoContactImporter.spec
+
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo [RETRY] Attempting direct pyinstaller build with bundled assets...
+    pyinstaller --clean --noconfirm --onefile --noconsole --collect-all selenium --add-data "logo.png;." --add-data "logo.ico;." --icon=logo.ico --name "AgilicoContactImporter" app.py
+)
 
 if %ERRORLEVEL% NEQ 0 (
     echo.

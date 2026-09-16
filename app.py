@@ -33,7 +33,16 @@ from selenium.common.exceptions import (
     NoSuchElementException,
     WebDriverException,
     ElementClickInterceptedException,
+    StaleElementReferenceException,
+    ElementNotInteractableException,
 )
+
+
+def get_resource_path(relative_path: str) -> str:
+    """Get absolute path to resource, compatible with dev and PyInstaller onefile bundles."""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
 
 
 class AgilicoImporterApp:
@@ -64,11 +73,10 @@ class AgilicoImporterApp:
         self.root.geometry("980x740")
         self.root.minsize(900, 660)
 
-        # Application Icon
+        # Application Icon & Logo from PyInstaller resource bundle
         self.logo_img = None
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        icon_path = os.path.join(base_dir, "logo.ico")
-        png_path = os.path.join(base_dir, "logo.png")
+        icon_path = get_resource_path("logo.ico")
+        png_path = get_resource_path("logo.png")
 
         if os.path.exists(icon_path):
             try:
@@ -98,6 +106,9 @@ class AgilicoImporterApp:
 
         self._build_ui()
         self._start_log_consumer()
+
+        # Handle window close event gracefully
+        self.root.protocol("WM_DELETE_WINDOW", self._on_window_close)
 
     def _build_ui(self):
         style = ttk.Style()
@@ -540,17 +551,38 @@ class AgilicoImporterApp:
         )
         text_lbl.pack(pady=(2, 0))
 
+    def _on_window_close(self):
+        """Gracefully handle window close, prompting if import is running and quitting driver."""
+        if self.is_running:
+            if not messagebox.askyesno(
+                "Confirm Exit",
+                "An import task is currently active.\nDo you want to stop the import and exit?",
+                parent=self.root,
+            ):
+                return
+            self.stop_requested = True
+
+        if self.driver:
+            try:
+                self.driver.quit()
+            except Exception:
+                pass
+            self.driver = None
+
+        self.root.destroy()
+
     def _browse_csv(self):
         filename = filedialog.askopenfilename(
             title="Select Contacts CSV File",
             filetypes=[("CSV Files (*.csv)", "*.csv"), ("All Files (*.*)", "*.*")],
         )
         if filename:
-            self.csv_path_var.set(filename)
-            base_name = os.path.basename(filename)
-            self.file_name_display_var.set(f"📄 {base_name} ({filename})")
+            clean_path = filename.strip().strip('"').strip("'")
+            self.csv_path_var.set(clean_path)
+            base_name = os.path.basename(clean_path)
+            self.file_name_display_var.set(f"📄 {base_name} ({clean_path})")
             self.status_detail_var.set(f"Selected: {base_name} - Ready to start import")
-            self.log(f"Selected CSV file: {filename}", level="INFO")
+            self.log(f"Selected CSV file: {clean_path}", level="INFO")
 
     def log(self, message: str, level: str = "INFO"):
         """Thread-safe logging method that enqueues messages."""
@@ -600,7 +632,7 @@ class AgilicoImporterApp:
         url = self.url_var.get().strip()
         customer_name = self.customer_var.get().strip()
         browser_choice = self.browser_var.get().strip()
-        csv_path = self.csv_path_var.get().strip()
+        csv_path = self.csv_path_var.get().strip().strip('"').strip("'")
 
         if not url or url == "https://":
             messagebox.showerror("Error", "Please enter a valid Agilico Base URL.")
@@ -623,63 +655,89 @@ class AgilicoImporterApp:
         thread.start()
 
     def _read_contacts_csv(self, csv_path: str):
-        """Reads CSV and maps headers flexibly to target fields."""
+        """Reads CSV flexibly with multiple encoding fallbacks and header synonyms."""
         contacts = []
-        with open(csv_path, mode="r", encoding="utf-8-sig") as f:
-            reader = csv.DictReader(f)
-            if not reader.fieldnames:
-                return contacts
+        encodings_to_try = ["utf-8-sig", "utf-8", "cp1252", "latin-1", "iso-8859-1"]
+        raw_text = None
 
-            field_map = {}
-            for col in reader.fieldnames:
-                normalized = col.strip().lower().replace("_", " ").replace("-", " ")
-                if "first" in normalized:
-                    field_map["first_name"] = col
-                elif "last" in normalized:
-                    field_map["last_name"] = col
-                elif "display" in normalized:
-                    field_map["display_name"] = col
-                elif "speed" in normalized or "dial" in normalized:
-                    field_map["speed_dial"] = col
-                elif "number" in normalized or "phone" in normalized or "mobile" in normalized or "tel" in normalized:
-                    field_map["number"] = col
+        for enc in encodings_to_try:
+            try:
+                with open(csv_path, mode="r", encoding=enc) as f:
+                    raw_text = f.read()
+                break
+            except (UnicodeDecodeError, Exception):
+                continue
 
-            for idx, row in enumerate(reader, start=1):
-                first_name = row.get(field_map.get("first_name", "First Name"), "").strip()
-                last_name = row.get(field_map.get("last_name", "Last Name"), "").strip()
-                display_name = row.get(field_map.get("display_name", "Display Name"), "").strip()
-                speed_dial = row.get(field_map.get("speed_dial", "Speed Dial"), "").strip()
-                phone_number = row.get(field_map.get("number", "Number"), "").strip()
+        if not raw_text:
+            self.log(f"Failed to read CSV file: Could not decode using supported encodings.", level="ERROR")
+            return contacts
 
-                # Generate Display Name fallback if blank
-                if not display_name:
-                    if first_name and last_name:
-                        display_name = f"{first_name} {last_name}".strip()
-                    elif first_name:
-                        display_name = first_name
-                    elif last_name:
-                        display_name = last_name
+        # Determine delimiter using csv.Sniffer or fallback to comma
+        lines = [l for l in raw_text.splitlines() if l.strip()]
+        if not lines:
+            return contacts
 
-                # Enforce 5-character minimum requirement for Contact Name / Display Name
-                if display_name and len(display_name) < 5:
-                    display_name = display_name.ljust(5)
+        try:
+            sample = "\n".join(lines[:10])
+            dialect = csv.Sniffer().sniff(sample, delimiters=",\t;|")
+            delimiter = dialect.delimiter
+        except Exception:
+            delimiter = ","
 
-                if first_name and not last_name and len(first_name) < 5:
-                    first_name = first_name.ljust(5)
+        reader = csv.DictReader(lines, delimiter=delimiter)
+        if not reader.fieldnames:
+            return contacts
 
-                # Fallback phone number from speed dial if number not specifically provided
-                if not phone_number and speed_dial and len(speed_dial) >= 5:
-                    phone_number = speed_dial
+        field_map = {}
+        for col in reader.fieldnames:
+            normalized = col.strip().lower().replace("_", " ").replace("-", " ")
+            if any(k in normalized for k in ["first", "forename", "given", "fname"]):
+                field_map["first_name"] = col
+            elif any(k in normalized for k in ["last", "surname", "family", "lname"]):
+                field_map["last_name"] = col
+            elif any(k in normalized for k in ["display", "full name", "contact name"]):
+                field_map["display_name"] = col
+            elif any(k in normalized for k in ["speed", "dial", "ext", "extension"]):
+                field_map["speed_dial"] = col
+            elif any(k in normalized for k in ["number", "phone", "mobile", "tel", "cell", "direct", "telephone"]):
+                field_map["number"] = col
 
-                if first_name or last_name or display_name or speed_dial or phone_number:
-                    contacts.append({
-                        "row_num": idx,
-                        "first_name": first_name,
-                        "last_name": last_name,
-                        "display_name": display_name,
-                        "speed_dial": speed_dial,
-                        "number": phone_number,
-                    })
+        for idx, row in enumerate(reader, start=1):
+            first_name = row.get(field_map.get("first_name", "First Name"), "").strip().strip('"')
+            last_name = row.get(field_map.get("last_name", "Last Name"), "").strip().strip('"')
+            display_name = row.get(field_map.get("display_name", "Display Name"), "").strip().strip('"')
+            speed_dial = row.get(field_map.get("speed_dial", "Speed Dial"), "").strip().strip('"')
+            phone_number = row.get(field_map.get("number", "Number"), "").strip().strip('"')
+
+            # Generate Display Name fallback if blank
+            if not display_name:
+                if first_name and last_name:
+                    display_name = f"{first_name} {last_name}".strip()
+                elif first_name:
+                    display_name = first_name
+                elif last_name:
+                    display_name = last_name
+
+            # Enforce 5-character minimum requirement for Contact Name / Display Name
+            if display_name and len(display_name) < 5:
+                display_name = display_name.ljust(5)
+
+            if first_name and not last_name and len(first_name) < 5:
+                first_name = first_name.ljust(5)
+
+            # Fallback phone number from speed dial if number not specifically provided
+            if not phone_number and speed_dial and len(speed_dial) >= 5:
+                phone_number = speed_dial
+
+            if first_name or last_name or display_name or speed_dial or phone_number:
+                contacts.append({
+                    "row_num": idx,
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "display_name": display_name,
+                    "speed_dial": speed_dial,
+                    "number": phone_number,
+                })
 
         return contacts
 
@@ -692,6 +750,9 @@ class AgilicoImporterApp:
             opts.add_argument("--start-maximized")
             opts.add_argument("--disable-notifications")
             opts.add_argument("--disable-popup-blocking")
+            opts.add_argument("--remote-allow-origins=*")
+            opts.add_argument("--ignore-certificate-errors")
+            opts.add_argument("--disable-blink-features=AutomationControlled")
             opts.add_experimental_option("excludeSwitches", ["enable-automation"])
             opts.add_experimental_option("useAutomationExtension", False)
             return webdriver.Edge(options=opts), "Microsoft Edge"
@@ -701,6 +762,9 @@ class AgilicoImporterApp:
             opts.add_argument("--start-maximized")
             opts.add_argument("--disable-notifications")
             opts.add_argument("--disable-popup-blocking")
+            opts.add_argument("--remote-allow-origins=*")
+            opts.add_argument("--ignore-certificate-errors")
+            opts.add_argument("--disable-blink-features=AutomationControlled")
             opts.add_experimental_option("excludeSwitches", ["enable-automation"])
             opts.add_experimental_option("useAutomationExtension", False)
             return webdriver.Chrome(options=opts), "Google Chrome"
@@ -743,6 +807,28 @@ class AgilicoImporterApp:
 
         raise WebDriverException(f"Could not find or launch any supported browser (Edge, Chrome, Firefox). Error: {last_err}")
 
+    def _safe_click(self, driver, element, retries: int = 3):
+        """Scrolls element into center and clicks with robust JavaScript fallback and animation retries."""
+        for attempt in range(retries):
+            try:
+                driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'center'});", element)
+                time.sleep(0.15)
+                element.click()
+                return True
+            except (ElementClickInterceptedException, ElementNotInteractableException, StaleElementReferenceException):
+                try:
+                    driver.execute_script("arguments[0].click();", element)
+                    return True
+                except Exception:
+                    time.sleep(0.3)
+            except Exception:
+                try:
+                    driver.execute_script("arguments[0].click();", element)
+                    return True
+                except Exception:
+                    time.sleep(0.3)
+        return False
+
     def _find_input_field(self, driver, wait, field_identifiers):
         """Attempts multiple robust strategies to locate the form input for a specific field."""
         for term in field_identifiers:
@@ -774,26 +860,32 @@ class AgilicoImporterApp:
         return None
 
     def _populate_input(self, driver, element, value: str):
-        """Focuses, clears, and inputs text cleanly into an input element."""
+        """Focuses, clears, and inputs text cleanly into an input element with event triggers."""
         if not element or value is None:
             return
         try:
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
-            element.click()
             time.sleep(0.1)
+            element.click()
+            time.sleep(0.05)
             element.clear()
+            element.send_keys(Keys.CONTROL + "a")
+            element.send_keys(Keys.BACKSPACE)
             element.send_keys(value)
         except Exception:
-            try:
-                driver.execute_script(
-                    "arguments[0].value = arguments[1];"
-                    "arguments[0].dispatchEvent(new Event('input', { bubbles: true }));"
-                    "arguments[0].dispatchEvent(new Event('change', { bubbles: true }));",
-                    element,
-                    value,
-                )
-            except Exception as e:
-                raise e
+            pass
+
+        try:
+            # Ensure JavaScript events trigger so portal forms register the value
+            driver.execute_script(
+                "arguments[0].value = arguments[1];"
+                "arguments[0].dispatchEvent(new Event('input', { bubbles: true }));"
+                "arguments[0].dispatchEvent(new Event('change', { bubbles: true }));",
+                element,
+                value,
+            )
+        except Exception:
+            pass
 
     def _select_type_dropdown(self, driver, wait, target_text: str):
         """Selects 'Mobile' or 'Work' from the Type dropdown in standard or custom forms."""
@@ -979,11 +1071,7 @@ class AgilicoImporterApp:
             raise NoSuchElementException(f"Could not find customer switch button for '{customer_name}' on ChangeTenant page.")
 
         self.log(f"Found customer target button for '{customer_name}'. Switching tenant...", level="SUCCESS")
-        try:
-            target_link.click()
-        except ElementClickInterceptedException:
-            self.driver.execute_script("arguments[0].click();", target_link)
-
+        self._safe_click(self.driver, target_link)
         time.sleep(2.5)
 
         # Ensure we navigate to Contacts page
@@ -1099,10 +1187,7 @@ class AgilicoImporterApp:
                     if not add_btn:
                         raise NoSuchElementException("Could not locate the 'Add' button.")
 
-                    try:
-                        add_btn.click()
-                    except ElementClickInterceptedException:
-                        self.driver.execute_script("arguments[0].click();", add_btn)
+                    self._safe_click(self.driver, add_btn)
 
                     # 5b. Wait for the form (Contact Details) to load
                     time.sleep(0.8)
@@ -1182,11 +1267,7 @@ class AgilicoImporterApp:
                     if not save_btn:
                         raise NoSuchElementException("Could not locate the 'Save' button (.x-save).")
 
-                    try:
-                        save_btn.click()
-                    except ElementClickInterceptedException:
-                        self.driver.execute_script("arguments[0].click();", save_btn)
-
+                    self._safe_click(self.driver, save_btn)
                     self.log(f"Contact details saved for {contact['display_name']}. Waiting 4 seconds...", level="INFO")
 
                     # 5e. Wait 4 seconds after initial save
@@ -1222,10 +1303,7 @@ class AgilicoImporterApp:
                         if not overlay_btn:
                             self.log("Could not locate 'btn btn-default x-overlay' button.", level="WARNING")
                         else:
-                            try:
-                                overlay_btn.click()
-                            except ElementClickInterceptedException:
-                                self.driver.execute_script("arguments[0].click();", overlay_btn)
+                            self._safe_click(self.driver, overlay_btn)
 
                             # Wait for Add Number form to load
                             time.sleep(1.0)
@@ -1287,10 +1365,7 @@ class AgilicoImporterApp:
                                     continue
 
                             if num_save_btn:
-                                try:
-                                    num_save_btn.click()
-                                except ElementClickInterceptedException:
-                                    self.driver.execute_script("arguments[0].click();", num_save_btn)
+                                self._safe_click(self.driver, num_save_btn)
                                 self.log(f"Saved phone number ({target_type}: {phone_number})", level="SUCCESS")
                             else:
                                 self.log("Could not locate 'btn btn-primary x-save' button for number form.", level="WARNING")
