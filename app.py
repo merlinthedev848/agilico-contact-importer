@@ -793,6 +793,16 @@ class AgilicoImporterApp:
 
         raise WebDriverException(f"Could not find or launch any supported browser (Edge, Chrome, Firefox). Error: {last_err}")
 
+    def _wait_for_page_ready(self, driver, timeout: float = 15.0):
+        """Waits for the browser DOM and active network requests to finish loading."""
+        try:
+            WebDriverWait(driver, timeout).until(
+                lambda d: d.execute_script("return document.readyState") == "complete"
+            )
+        except Exception:
+            pass
+        time.sleep(0.5)
+
     def _safe_click(self, driver, element, retries: int = 3):
         """Scrolls element into center and clicks with robust JavaScript fallback and animation retries."""
         for attempt in range(retries):
@@ -1074,7 +1084,7 @@ class AgilicoImporterApp:
         """Pre-fills the Target Customer into the username/customer field on the portal sign-in page."""
         if not customer_name:
             return
-        time.sleep(2.0)
+        time.sleep(1.0)
         login_input_xpaths = [
             "//input[@id='Username' or @name='Username']",
             "//input[@id='UserName' or @name='UserName']",
@@ -1094,7 +1104,7 @@ class AgilicoImporterApp:
                         el.clear()
                         el.send_keys(customer_name)
                         self.log(f"Pre-filled Target Customer '{customer_name}' into login username field.", level="SUCCESS")
-                        time.sleep(2.0)
+                        time.sleep(1.0)
                         return True
             except Exception:
                 continue
@@ -1136,9 +1146,9 @@ class AgilicoImporterApp:
     def _switch_tenant(self, base_url: str, customer_name: str, wait: WebDriverWait):
         """Navigates to ChangeTenant, searches for customer_name, and clicks TargetCustomer pencil button."""
         change_tenant_url = f"{base_url.rstrip('/')}/Account/ChangeTenant"
-        self.log(f"Navigating to ChangeTenant page: {change_tenant_url} (waiting 2 seconds)...", level="INFO")
+        self.log(f"Navigating to ChangeTenant page: {change_tenant_url}...", level="INFO")
         self.driver.get(change_tenant_url)
-        time.sleep(2.0)
+        self._wait_for_page_ready(self.driver, timeout=15.0)
 
         # Locate search box
         search_xpaths = [
@@ -1166,7 +1176,7 @@ class AgilicoImporterApp:
             self.log(f"Filtering customer search for: '{customer_name}'...", level="INFO")
             search_box.clear()
             search_box.send_keys(customer_name)
-            time.sleep(2.0)
+            time.sleep(1.0)
         else:
             self.log("Could not locate search box on ChangeTenant page. Searching rows directly...", level="WARNING")
 
@@ -1196,7 +1206,7 @@ class AgilicoImporterApp:
 
         self.log(f"Found customer target button for '{customer_name}'. Switching tenant...", level="SUCCESS")
         self._safe_click(self.driver, target_link)
-        time.sleep(2.0)
+        self._wait_for_page_ready(self.driver, timeout=15.0)
 
         # Ensure we navigate to Contacts page
         contacts_url = f"{base_url.rstrip('/')}/Contacts"
@@ -1207,13 +1217,13 @@ class AgilicoImporterApp:
                 contact_nav = self.driver.find_element(By.XPATH, "//a[contains(., 'Contacts') or contains(@href, 'Contact')]")
                 if contact_nav.is_displayed():
                     contact_nav.click()
-                    time.sleep(2.0)
+                    self._wait_for_page_ready(self.driver, timeout=15.0)
                 else:
                     self.driver.get(contacts_url)
-                    time.sleep(2.0)
+                    self._wait_for_page_ready(self.driver, timeout=15.0)
             except Exception:
                 self.driver.get(contacts_url)
-                time.sleep(2.0)
+                self._wait_for_page_ready(self.driver, timeout=15.0)
 
         self.log("Customer tenant switched successfully. Ready on Contacts view.", level="SUCCESS")
 
@@ -1238,10 +1248,10 @@ class AgilicoImporterApp:
             self.log(f"Successfully launched {browser_name}.", level="SUCCESS")
             self.status_detail_var.set(f"{browser_name} active. Navigating to portal...")
 
-            # Step 3: Navigate to Agilico Portal (with 2-second delay)
-            self.log(f"Navigating to {url} (waiting 2 seconds)...", level="INFO")
+            # Step 3: Navigate to Agilico Portal
+            self.log(f"Navigating to {url}...", level="INFO")
             self.driver.get(url)
-            time.sleep(2.0)
+            self._wait_for_page_ready(self.driver, timeout=15.0)
 
             # Step 4: Show Login Prompt Dialog
             self.log("Waiting for user login confirmation...", level="WARNING")
@@ -1253,7 +1263,7 @@ class AgilicoImporterApp:
                 self.status_detail_var.set("Import cancelled by user.")
                 return
 
-            time.sleep(2.0)
+            self._wait_for_page_ready(self.driver, timeout=15.0)
             wait = WebDriverWait(self.driver, 15)
 
             # Step 4b: Automatic Tenant Switching if Customer Name is provided
@@ -1264,7 +1274,7 @@ class AgilicoImporterApp:
                 except Exception as ex:
                     self.log(f"Tenant switch warning: {str(ex)}. Continuing...", level="WARNING")
 
-            self.log("Starting contact import process (2-second delay between actions active)...", level="SUCCESS")
+            self.log("Starting contact import process (1-second action delay active)...", level="SUCCESS")
 
             success_count = 0
             fail_count = 0
@@ -1290,9 +1300,9 @@ class AgilicoImporterApp:
                     # 5.0 Ensure we are on the main Contacts list view before clicking Add Contact
                     current_url = self.driver.current_url
                     if not current_url.rstrip("/").lower().endswith("/contacts"):
-                        self.log(f"Returning to Contacts list: {contacts_url} (waiting 2 seconds)...", level="INFO")
+                        self.log(f"Returning to Contacts list: {contacts_url}...", level="INFO")
                         self.driver.get(contacts_url)
-                        time.sleep(2.0)
+                        self._wait_for_page_ready(self.driver, timeout=15.0)
 
                     # 5a. Click the main 'Add' Contact button
                     add_button_xpath = "//a[contains(., 'Add')] | //button[contains(., 'Add')]"
@@ -1318,9 +1328,9 @@ class AgilicoImporterApp:
                     if not add_btn:
                         raise NoSuchElementException("Could not locate the 'Add' button on Contacts view.")
 
-                    self.log("Clicking 'Add' contact button (waiting 2 seconds)...", level="INFO")
+                    self.log("Clicking 'Add' contact button...", level="INFO")
                     self._safe_click(self.driver, add_btn)
-                    time.sleep(2.0)
+                    self._wait_for_page_ready(self.driver, timeout=15.0)
 
                     # 5b. Wait for the form (Contact Details) to load
                     for form_indicator in [
@@ -1369,16 +1379,17 @@ class AgilicoImporterApp:
                     if sd_elem and contact["speed_dial"]:
                         self._populate_input(self.driver, sd_elem, contact["speed_dial"])
 
-                    time.sleep(2.0)
+                    time.sleep(1.0)
 
                     # 5d. Click initial save button: <button type="submit" class="btn btn-primary x-save"><i class="fa fa-save"></i></button>
                     save_btn = self._find_save_button()
                     if not save_btn:
                         raise NoSuchElementException("Could not locate the 'Save' button (<button type='submit' class='btn btn-primary x-save'>).")
 
-                    self.log(f"Saving contact details for {contact['display_name']} (<button class='btn btn-primary x-save'>) (waiting 2 seconds)...", level="INFO")
+                    self.log(f"Saving contact details for {contact['display_name']} (<button class='btn btn-primary x-save'>)...", level="INFO")
                     self._safe_click(self.driver, save_btn)
-                    time.sleep(2.0)
+                    self._wait_for_page_ready(self.driver, timeout=15.0)
+                    time.sleep(1.0)
 
                     # 5e. If contact has a number, open <a href="/ContactNumbers/Add?ContactId=###" class="btn btn-default x-overlay"><i class="fa fa-plus"></i> Add</a>
                     phone_number = contact.get("number", "").strip()
@@ -1389,20 +1400,20 @@ class AgilicoImporterApp:
                         if not add_num_btn:
                             self.log("Could not locate '<a href=\"/ContactNumbers/Add...\" class=\"btn btn-default x-overlay\">' button.", level="WARNING")
                         else:
-                            self.log("Clicking Add Number button (waiting 2 seconds)...", level="INFO")
+                            self.log("Clicking Add Number button...", level="INFO")
                             self._safe_click(self.driver, add_num_btn)
-                            time.sleep(2.0)
+                            self._wait_for_page_ready(self.driver, timeout=10.0)
 
                             # Locate Number field: <input id="Number" name="Number" ...>
                             num_elem = self._find_modal_number_input(wait)
 
                             if num_elem:
                                 self._populate_input(self.driver, num_elem, phone_number)
-                                self.log(f"Entered telephone number '{phone_number}' into <input id='Number'> (waiting 2 seconds)...", level="INFO")
+                                self.log(f"Entered telephone number '{phone_number}' into <input id='Number'>...", level="INFO")
                             else:
                                 self.log("Could not locate '<input id=\"Number\" name=\"Number\">' field.", level="WARNING")
 
-                            time.sleep(2.0)
+                            time.sleep(1.0)
 
                             # Determine Type: 07XXXXXXXXX -> Mobile, non-07 -> Work
                             clean_num = phone_number.replace(" ", "").replace("-", "").replace("(", "").replace(")", "").strip()
@@ -1411,40 +1422,42 @@ class AgilicoImporterApp:
                             else:
                                 target_type = "Work"
 
-                            self.log(f"Selecting dropdown type '{target_type}' in <select id='ContactNumberTypeID'> (waiting 2 seconds)...", level="INFO")
+                            self.log(f"Selecting dropdown type '{target_type}' in <select id='ContactNumberTypeID'>...", level="INFO")
                             selected = self._select_type_dropdown(self.driver, wait, target_type)
                             if not selected:
                                 self.log(f"Could not automatically select dropdown '{target_type}'.", level="WARNING")
 
-                            time.sleep(2.0)
+                            time.sleep(1.0)
 
                             # Click Save on Number form: <button type="submit" class="btn btn-primary x-save"><i class="fa fa-save"></i></button>
                             num_save_btn = self._find_save_button()
 
                             if num_save_btn:
-                                self.log(f"Saving telephone number ({target_type}: {phone_number}) via <button class='btn btn-primary x-save'> (waiting 2 seconds)...", level="INFO")
+                                self.log(f"Saving telephone number ({target_type}: {phone_number}) via <button class='btn btn-primary x-save'>...", level="INFO")
                                 self._safe_click(self.driver, num_save_btn)
-                                time.sleep(2.0)
+                                self._wait_for_page_ready(self.driver, timeout=10.0)
                                 self.log(f"Successfully saved telephone number ({target_type}: {phone_number})", level="SUCCESS")
                             else:
                                 self.log("Could not locate 'Save' button (<button class='btn btn-primary x-save'>) for number form.", level="WARNING")
 
+                            time.sleep(1.0)
+
                             # Press Save again once the screen updates back to the contact form to commit final changes
-                            self.log("Screen updated. Finalizing contact details by pressing Save again (waiting 2 seconds)...", level="INFO")
+                            self.log("Screen updated. Finalizing contact details by pressing Save again...", level="INFO")
                             final_save_btn = self._find_save_button()
                             if final_save_btn:
                                 self._safe_click(self.driver, final_save_btn)
-                                time.sleep(2.0)
+                                self._wait_for_page_ready(self.driver, timeout=15.0)
                                 self.log(f"Final contact save confirmed for {contact['display_name']}.", level="SUCCESS")
 
                     success_count += 1
                     self.log(f"Successfully completed contact {idx}/{len(contacts)}: {contact['display_name']}", level="SUCCESS")
-                    time.sleep(2.0)
+                    time.sleep(1.0)
 
                 except Exception as ex:
                     fail_count += 1
                     self.log(f"Error processing row {contact['row_num']} ({contact['display_name']}): {str(ex)}", level="ERROR")
-                    time.sleep(2.0)
+                    time.sleep(1.0)
 
             # Summary
             self.progress_val_var.set(100)
