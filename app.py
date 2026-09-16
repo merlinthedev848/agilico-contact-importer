@@ -1108,21 +1108,20 @@ class AgilicoImporterApp:
         def _ask():
             if customer_name:
                 cust_info = (
-                    f"1. On the login screen, enter your Target Customer into the Username field:\n"
-                    f"   👉 '{customer_name}' (automatically pre-filled for you)\n\n"
-                    f"2. Enter your password and click 'Log In'.\n\n"
-                    f"3. Click 'OK' below once you are logged in to start importing contacts."
+                    f"1. Enter your Username and Password in {browser_name} to log into your portal account.\n\n"
+                    f"2. Once logged in, click 'OK' (or press Enter) below.\n\n"
+                    f"3. The software will then automatically switch to customer '{customer_name}' and import contacts."
                 )
             else:
                 cust_info = (
-                    "1. Log into your portal account in the browser.\n"
-                    "2. Switch to your target customer and navigate to 'Contacts'.\n"
-                    "3. Click 'OK' when ready to begin."
+                    f"1. Enter your Username and Password in {browser_name} to log into your portal account.\n\n"
+                    "2. Navigate to your target customer / Contacts view.\n\n"
+                    "3. Click 'OK' (or press Enter) when ready to begin import."
                 )
 
             res = messagebox.askokcancel(
                 "Action Required - Portal Sign-In",
-                f"{browser_name} has launched and opened the portal.\n\n"
+                f"{browser_name} has opened the portal sign-in page.\n\n"
                 f"{cust_info}\n\n"
                 "(Click 'Cancel' to abort)",
                 parent=self.root,
@@ -1244,13 +1243,9 @@ class AgilicoImporterApp:
             self.driver.get(url)
             time.sleep(4.0)
 
-            # Step 3b: Pre-fill Target Customer into Username field on login screen if present
-            if customer_name:
-                self._prefill_login_customer(customer_name)
-
             # Step 4: Show Login Prompt Dialog
             self.log("Waiting for user login confirmation...", level="WARNING")
-            self.status_detail_var.set("Waiting for user login in browser...")
+            self.status_detail_var.set("Please log into portal in browser and click OK...")
             user_confirmed = self._show_login_dialog_sync(customer_name, browser_name)
 
             if not user_confirmed or self.stop_requested:
@@ -1433,6 +1428,14 @@ class AgilicoImporterApp:
                                 self.log(f"Successfully saved telephone number ({target_type}: {phone_number})", level="SUCCESS")
                             else:
                                 self.log("Could not locate 'Save' button (<button class='btn btn-primary x-save'>) for number form.", level="WARNING")
+
+                            # Press Save again once the screen updates back to the contact form to commit final changes
+                            self.log("Screen updated. Finalizing contact details by pressing Save again (waiting 4 seconds)...", level="INFO")
+                            final_save_btn = self._find_save_button()
+                            if final_save_btn:
+                                self._safe_click(self.driver, final_save_btn)
+                                time.sleep(4.0)
+                                self.log(f"Final contact save confirmed for {contact['display_name']}.", level="SUCCESS")
 
                     success_count += 1
                     self.log(f"Successfully completed contact {idx}/{len(contacts)}: {contact['display_name']}", level="SUCCESS")
