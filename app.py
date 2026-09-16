@@ -13,13 +13,14 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import (
     TimeoutException,
     NoSuchElementException,
     WebDriverException,
     ElementClickInterceptedException,
+    UnexpectedTagNameException,
 )
 from webdriver_manager.chrome import ChromeDriverManager
 
@@ -67,7 +68,7 @@ class AgilicoImporterApp:
 
         subtitle_label = tk.Label(
             header_frame,
-            text="Automated CSV batch contact creation for Agilico portal",
+            text="Automated CSV batch contact and phone number creation for Agilico portal",
             font=("Segoe UI", 9),
             fg="#94a3b8",
             bg="#1e293b",
@@ -265,24 +266,32 @@ class AgilicoImporterApp:
                     field_map["display_name"] = col
                 elif "speed" in normalized or "dial" in normalized:
                     field_map["speed_dial"] = col
+                elif "number" in normalized or "phone" in normalized or "mobile" in normalized or "tel" in normalized:
+                    field_map["number"] = col
 
             for idx, row in enumerate(reader, start=1):
                 first_name = row.get(field_map.get("first_name", "First Name"), "").strip()
                 last_name = row.get(field_map.get("last_name", "Last Name"), "").strip()
                 display_name = row.get(field_map.get("display_name", "Display Name"), "").strip()
                 speed_dial = row.get(field_map.get("speed_dial", "Speed Dial"), "").strip()
+                phone_number = row.get(field_map.get("number", "Number"), "").strip()
 
                 # Generate Display Name fallback if blank
                 if not display_name and (first_name or last_name):
                     display_name = f"{first_name} {last_name}".strip()
 
-                if first_name or last_name or display_name or speed_dial:
+                # Fallback phone number from speed dial if number not specifically provided
+                if not phone_number and speed_dial and len(speed_dial) >= 5:
+                    phone_number = speed_dial
+
+                if first_name or last_name or display_name or speed_dial or phone_number:
                     contacts.append({
                         "row_num": idx,
                         "first_name": first_name,
                         "last_name": last_name,
                         "display_name": display_name,
                         "speed_dial": speed_dial,
+                        "number": phone_number,
                     })
 
         return contacts
@@ -290,7 +299,7 @@ class AgilicoImporterApp:
     def _find_input_field(self, driver, wait, field_identifiers):
         """
         Attempts multiple robust strategies to locate the form input for a specific field.
-        field_identifiers: list of potential search terms like ['first name', 'firstname', 'fname', 'first']
+        field_identifiers: list of potential search terms like ['first name', 'firstname', 'number']
         """
         for term in field_identifiers:
             t_lower = term.lower()
@@ -299,10 +308,10 @@ class AgilicoImporterApp:
                 # 1. Label text containing name followed by input
                 f"//label[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{t_lower}')]/following::input[1]",
                 f"//label[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{t_lower}')]/following::input[1]",
-                # 2. ExtJS label with text containing term
+                # 2. ExtJS label/span with text containing term
                 f"//span[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{t_lower}')]/following::input[1]",
                 f"//div[contains(@class, 'x-form-item') and contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{t_lower}')]//input",
-                # 3. Direct input name/id/placeholder matching
+                # 3. Direct input name/id/placeholder/aria matching
                 f"//input[contains(translate(@name, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{t_lower}')]",
                 f"//input[contains(translate(@id, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{t_lower}')]",
                 f"//input[contains(translate(@placeholder, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{t_lower}')]",
@@ -331,7 +340,6 @@ class AgilicoImporterApp:
             element.clear()
             element.send_keys(value)
         except Exception:
-            # Fallback using JS value set and change event dispatch
             try:
                 driver.execute_script(
                     "arguments[0].value = arguments[1];"
@@ -342,6 +350,67 @@ class AgilicoImporterApp:
                 )
             except Exception as e:
                 raise e
+
+    def _select_type_dropdown(self, driver, wait, target_text: str):
+        """Selects 'Mobile' or 'Work' from the Type dropdown in standard or custom forms."""
+        # Strategy 1: Standard HTML <select> tag
+        select_xpaths = [
+            "//label[contains(translate(text(), 'TYPE', 'type'), 'type')]/following::select[1]",
+            "//select[contains(translate(@name, 'TYPE', 'type'), 'type') or contains(translate(@id, 'TYPE', 'type'), 'type')]",
+            "//select",
+        ]
+        for xpath in select_xpaths:
+            try:
+                select_elements = driver.find_elements(By.XPATH, xpath)
+                for s_elem in select_elements:
+                    if s_elem.is_displayed() and s_elem.is_enabled():
+                        select_obj = Select(s_elem)
+                        for option in select_obj.options:
+                            if target_text.lower() in option.text.strip().lower():
+                                select_obj.select_by_visible_text(option.text)
+                                return True
+            except Exception:
+                continue
+
+        # Strategy 2: Custom Dropdown / ExtJS ComboBox / Clickable trigger
+        custom_dropdown_xpaths = [
+            "//label[contains(translate(text(), 'TYPE', 'type'), 'type')]/following::input[1]",
+            "//label[contains(translate(text(), 'TYPE', 'type'), 'type')]/following::*[contains(@class, 'x-form-trigger') or contains(@class, 'x-form-arrow-trigger')][1]",
+            "//div[contains(@class, 'x-form-item') and contains(translate(., 'TYPE', 'type'), 'type')]//input",
+            "//div[contains(@class, 'x-form-item') and contains(translate(., 'TYPE', 'type'), 'type')]//*[contains(@class, 'x-form-trigger')]",
+            "//input[contains(translate(@name, 'TYPE', 'type'), 'type') or contains(translate(@id, 'TYPE', 'type'), 'type')]",
+        ]
+        for xpath in custom_dropdown_xpaths:
+            try:
+                triggers = driver.find_elements(By.XPATH, xpath)
+                for trig in triggers:
+                    if trig.is_displayed() and trig.is_enabled():
+                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", trig)
+                        trig.click()
+                        time.sleep(0.3)
+
+                        # Look for dropdown option list items
+                        option_xpaths = [
+                            f"//li[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text.lower()}')]",
+                            f"//div[contains(@class, 'x-combo-list-item') and contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text.lower()}')]",
+                            f"//div[contains(@class, 'x-boundlist-item') and contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text.lower()}')]",
+                            f"//*[contains(@class, 'dropdown-item') and contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text.lower()}')]",
+                            f"//option[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text.lower()}')]",
+                            f"//*[text()='{target_text}' or text()='{target_text.title()}']",
+                        ]
+                        for opt_xpath in option_xpaths:
+                            try:
+                                opt_elems = driver.find_elements(By.XPATH, opt_xpath)
+                                for o_elem in opt_elems:
+                                    if o_elem.is_displayed():
+                                        o_elem.click()
+                                        return True
+                            except Exception:
+                                continue
+            except Exception:
+                continue
+
+        return False
 
     def _show_login_dialog_sync(self):
         """Displays a modal dialog asking the user to log in and proceed."""
@@ -456,7 +525,6 @@ class AgilicoImporterApp:
 
                     # 5b. Wait for the form (Contact Details) to load
                     time.sleep(0.8)
-                    form_loaded = False
                     for form_indicator in [
                         "//div[contains(., 'Contact Details')]",
                         "//span[contains(., 'Contact Details')]",
@@ -467,13 +535,9 @@ class AgilicoImporterApp:
                     ]:
                         try:
                             wait.until(EC.visibility_of_element_located((By.XPATH, form_indicator)))
-                            form_loaded = True
                             break
                         except TimeoutException:
                             continue
-
-                    if not form_loaded:
-                        self.log(f"Row {contact['row_num']}: Form container indicator not strictly matched, continuing...", level="WARNING")
 
                     # 5c. Populate form fields
                     # First Name
@@ -506,7 +570,7 @@ class AgilicoImporterApp:
 
                     time.sleep(0.3)
 
-                    # 5d. Click the save button (.x-save or //button[contains(@class, 'x-save')])
+                    # 5d. Click the initial save button (.x-save or //button[contains(@class, 'x-save')])
                     save_selectors = [
                         (By.CLASS_NAME, "x-save"),
                         (By.XPATH, "//button[contains(@class, 'x-save')]"),
@@ -538,11 +602,119 @@ class AgilicoImporterApp:
                     except ElementClickInterceptedException:
                         self.driver.execute_script("arguments[0].click();", save_btn)
 
-                    # 5e. Wait for the form to save/dismiss before starting the next contact
-                    time.sleep(1.0)
+                    self.log(f"Contact details saved for {contact['display_name']}. Waiting 4 seconds...", level="INFO")
+
+                    # 5e. Wait 4 seconds after initial save
+                    time.sleep(4.0)
+
+                    # 5f. If contact has a number, open the 'Add Number' section via btn btn-default x-overlay
+                    phone_number = contact.get("number", "").strip()
+                    if phone_number:
+                        self.log(f"Opening 'Add Number' overlay for {contact['display_name']} ({phone_number})...", level="INFO")
+
+                        overlay_selectors = [
+                            (By.XPATH, "//button[contains(@class, 'btn') and contains(@class, 'x-overlay')]"),
+                            (By.XPATH, "//a[contains(@class, 'btn') and contains(@class, 'x-overlay')]"),
+                            (By.XPATH, "//*[contains(@class, 'btn-default') and contains(@class, 'x-overlay')]"),
+                            (By.XPATH, "//*[contains(@class, 'x-overlay')]"),
+                            (By.XPATH, "//button[contains(., 'Add Number') or contains(., 'New Number')]"),
+                            (By.XPATH, "//a[contains(., 'Add Number') or contains(., 'New Number')]"),
+                        ]
+
+                        overlay_btn = None
+                        for by_t, sel in overlay_selectors:
+                            try:
+                                o_elems = self.driver.find_elements(by_t, sel)
+                                for el in o_elems:
+                                    if el.is_displayed() and el.is_enabled():
+                                        overlay_btn = el
+                                        break
+                                if overlay_btn:
+                                    break
+                            except Exception:
+                                continue
+
+                        if not overlay_btn:
+                            self.log("Could not locate 'btn btn-default x-overlay' button.", level="WARNING")
+                        else:
+                            try:
+                                overlay_btn.click()
+                            except ElementClickInterceptedException:
+                                self.driver.execute_script("arguments[0].click();", overlay_btn)
+
+                            # Wait for Add Number form to load
+                            time.sleep(1.0)
+
+                            # Populate Number field
+                            num_elem = self._find_input_field(
+                                self.driver, wait, ["number", "phone", "telephone", "num"]
+                            )
+                            if not num_elem:
+                                # Try first visible input inside the Add Number section
+                                try:
+                                    inputs = self.driver.find_elements(By.XPATH, "//div[contains(., 'Add Number')]//input")
+                                    for inp in inputs:
+                                        if inp.is_displayed() and inp.is_enabled():
+                                            num_elem = inp
+                                            break
+                                except Exception:
+                                    pass
+
+                            if num_elem:
+                                self._populate_input(self.driver, num_elem, phone_number)
+                                self.log(f"Entered phone number: {phone_number}", level="INFO")
+                            else:
+                                self.log("Could not locate 'Number' input field in overlay.", level="WARNING")
+
+                            # Determine Type: if starts with 07 (or +447) -> Mobile, else -> Work
+                            norm_num = phone_number.replace(" ", "").replace("-", "")
+                            if norm_num.startswith("07") or norm_num.startswith("+447"):
+                                target_type = "Mobile"
+                            else:
+                                target_type = "Work"
+
+                            self.log(f"Selecting dropdown type: '{target_type}' (based on number: {phone_number})", level="INFO")
+                            selected = self._select_type_dropdown(self.driver, wait, target_type)
+                            if not selected:
+                                self.log(f"Could not automatically select dropdown '{target_type}'.", level="WARNING")
+
+                            time.sleep(0.3)
+
+                            # Click btn btn-primary x-save
+                            num_save_selectors = [
+                                (By.XPATH, "//button[contains(@class, 'btn-primary') and contains(@class, 'x-save')]"),
+                                (By.XPATH, "//a[contains(@class, 'btn-primary') and contains(@class, 'x-save')]"),
+                                (By.XPATH, "//button[contains(@class, 'x-save')]"),
+                                (By.XPATH, "//a[contains(@class, 'x-save')]"),
+                                (By.XPATH, "//*[contains(@class, 'btn-primary') and contains(@class, 'x-save')]"),
+                            ]
+
+                            num_save_btn = None
+                            for by_t, sel in num_save_selectors:
+                                try:
+                                    ns_elems = self.driver.find_elements(by_t, sel)
+                                    for el in ns_elems:
+                                        if el.is_displayed() and el.is_enabled():
+                                            num_save_btn = el
+                                            break
+                                    if num_save_btn:
+                                        break
+                                except Exception:
+                                    continue
+
+                            if num_save_btn:
+                                try:
+                                    num_save_btn.click()
+                                except ElementClickInterceptedException:
+                                    self.driver.execute_script("arguments[0].click();", num_save_btn)
+                                self.log(f"Saved phone number ({target_type}: {phone_number})", level="SUCCESS")
+                            else:
+                                self.log("Could not locate 'btn btn-primary x-save' button for number form.", level="WARNING")
+
+                            time.sleep(1.2)
 
                     success_count += 1
-                    self.log(f"Successfully saved: {contact['display_name']}", level="SUCCESS")
+                    self.log(f"Successfully processed contact: {contact['display_name']}", level="SUCCESS")
 
                 except Exception as ex:
                     fail_count += 1
