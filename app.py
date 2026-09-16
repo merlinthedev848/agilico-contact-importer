@@ -9,8 +9,20 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 from datetime import datetime
 
 # Selenium imports
+import selenium
+import selenium.webdriver
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+import selenium.webdriver.edge.webdriver
+import selenium.webdriver.edge.service
+import selenium.webdriver.chrome.webdriver
+import selenium.webdriver.chrome.service
+import selenium.webdriver.firefox.webdriver
+import selenium.webdriver.firefox.service
+from selenium.webdriver.edge.service import Service as EdgeService
+from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.firefox.service import Service as FirefoxService
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.edge.options import Options as EdgeOptions
 from selenium.webdriver.firefox.options import Options as FirefoxOptions

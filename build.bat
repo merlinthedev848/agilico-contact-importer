@@ -16,7 +16,7 @@ if %ERRORLEVEL% NEQ 0 (
 
 echo.
 echo [2/2] Compiling app.py into a single standalone executable...
-pyinstaller --onefile --noconsole app.py
+pyinstaller --onefile --noconsole --collect-all selenium --name "AgilicoContactImporter" app.py
 
 if %ERRORLEVEL% NEQ 0 (
     echo.
@@ -28,6 +28,6 @@ if %ERRORLEVEL% NEQ 0 (
 echo.
 echo ===================================================
 echo Build completed successfully!
-echo Executable location: dist\app.exe
+echo Executable location: dist\AgilicoContactImporter.exe
 echo ===================================================
 pause
