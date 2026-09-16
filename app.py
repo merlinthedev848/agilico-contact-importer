@@ -168,12 +168,8 @@ class AgilicoImporterApp:
         nav_container = tk.Frame(sidebar, bg=self.COLOR_SIDEBAR_BG)
         nav_container.pack(fill=tk.X, pady=(10, 0))
 
-        # Nav Item 1: Importer (ACTIVE with Green Stripe)
-        self._create_nav_item(nav_container, "📥", "Importer", is_active=True)
-        self._create_nav_item(nav_container, "📊", "Dashboard", is_active=False)
-        self._create_nav_item(nav_container, "📝", "Logs", is_active=False)
-        self._create_nav_item(nav_container, "❓", "Help", is_active=False)
-        self._create_nav_item(nav_container, "⚙", "Settings", is_active=False)
+        # Nav Item: Importer (ACTIVE with Green Stripe)
+        self._create_nav_item(nav_container, "Importer", is_active=True)
 
         # 1c. Bottom Version Label
         version_label = tk.Label(
@@ -516,11 +512,11 @@ class AgilicoImporterApp:
 
         self.log("Ready. Select contacts.csv, enter target customer, and click 'START IMPORT'.", level="MUTED")
 
-    def _create_nav_item(self, parent, icon_char: str, label_text: str, is_active: bool = False):
-        """Creates an ag-diag style vertical sidebar item with left green active stripe."""
+    def _create_nav_item(self, parent, label_text: str, is_active: bool = False):
+        """Creates an ag-diag style vertical sidebar item with left green active stripe and clean text."""
         item_bg = self.COLOR_SIDEBAR_HOVER if is_active else self.COLOR_SIDEBAR_BG
-        item_frame = tk.Frame(parent, bg=item_bg, height=72)
-        item_frame.pack(fill=tk.X)
+        item_frame = tk.Frame(parent, bg=item_bg, height=44)
+        item_frame.pack(fill=tk.X, pady=2)
         item_frame.pack_propagate(False)
 
         if is_active:
@@ -531,25 +527,15 @@ class AgilicoImporterApp:
         content = tk.Frame(item_frame, bg=item_bg)
         content.pack(expand=True)
 
-        icon_color = "#ffffff" if is_active else "#94a3b8"
-        icon_lbl = tk.Label(
-            content,
-            text=icon_char,
-            font=("Segoe UI", 16),
-            fg=icon_color,
-            bg=item_bg,
-        )
-        icon_lbl.pack()
-
         text_color = "#ffffff" if is_active else "#94a3b8"
         text_lbl = tk.Label(
             content,
             text=label_text,
-            font=("Segoe UI", 8, "bold" if is_active else "normal"),
+            font=("Segoe UI", 9, "bold" if is_active else "normal"),
             fg=text_color,
             bg=item_bg,
         )
-        text_lbl.pack(pady=(2, 0))
+        text_lbl.pack()
 
     def _on_window_close(self):
         """Gracefully handle window close, prompting if import is running and quitting driver."""
