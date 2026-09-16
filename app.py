@@ -11,8 +11,9 @@ from datetime import datetime
 # Selenium imports
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.options import Options as ChromeOptions
+from selenium.webdriver.edge.options import Options as EdgeOptions
+from selenium.webdriver.firefox.options import Options as FirefoxOptions
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import (
@@ -21,20 +22,20 @@ from selenium.common.exceptions import (
     WebDriverException,
     ElementClickInterceptedException,
 )
-from webdriver_manager.chrome import ChromeDriverManager
 
 
 class AgilicoImporterApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Agilico Contact Importer")
-        self.root.geometry("760x690")
-        self.root.minsize(680, 560)
+        self.root.geometry("780x720")
+        self.root.minsize(700, 580)
 
         # State variables
         self.csv_path_var = tk.StringVar()
         self.url_var = tk.StringVar(value="https://customerportal.hp2k.co.uk/")
         self.customer_var = tk.StringVar()
+        self.browser_var = tk.StringVar(value="Microsoft Edge (Default)")
         self.is_running = False
         self.stop_requested = False
         self.log_queue = queue.Queue()
@@ -97,12 +98,30 @@ class AgilicoImporterApp:
         self.cust_entry = ttk.Entry(config_frame, textvariable=self.customer_var, font=("Segoe UI", 10))
         self.cust_entry.grid(row=1, column=1, sticky="ew", padx=(8, 0), pady=(0, 6))
 
+        # Browser Selection Row
+        browser_label = ttk.Label(config_frame, text="Web Browser:", font=("Segoe UI", 9, "bold"))
+        browser_label.grid(row=2, column=0, sticky="w", pady=(0, 6))
+
+        self.browser_combo = ttk.Combobox(
+            config_frame,
+            textvariable=self.browser_var,
+            values=[
+                "Microsoft Edge (Default)",
+                "Google Chrome",
+                "Mozilla Firefox",
+                "Auto-Detect (Any Available)",
+            ],
+            state="readonly",
+            font=("Segoe UI", 10),
+        )
+        self.browser_combo.grid(row=2, column=1, sticky="ew", padx=(8, 0), pady=(0, 6))
+
         # CSV File Row
         csv_label = ttk.Label(config_frame, text="Contacts CSV File:", font=("Segoe UI", 9, "bold"))
-        csv_label.grid(row=2, column=0, sticky="w", pady=(6, 0))
+        csv_label.grid(row=3, column=0, sticky="w", pady=(6, 0))
 
         csv_picker_frame = ttk.Frame(config_frame)
-        csv_picker_frame.grid(row=2, column=1, sticky="ew", padx=(8, 0), pady=(6, 0))
+        csv_picker_frame.grid(row=3, column=1, sticky="ew", padx=(8, 0), pady=(6, 0))
 
         self.csv_entry = ttk.Entry(csv_picker_frame, textvariable=self.csv_path_var, font=("Segoe UI", 10))
         self.csv_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -221,6 +240,7 @@ class AgilicoImporterApp:
             self.browse_btn.config(state=tk.DISABLED)
             self.url_entry.config(state=tk.DISABLED)
             self.cust_entry.config(state=tk.DISABLED)
+            self.browser_combo.config(state=tk.DISABLED)
             self.csv_entry.config(state=tk.DISABLED)
             self.status_var.set("Running...")
         else:
@@ -229,6 +249,7 @@ class AgilicoImporterApp:
             self.browse_btn.config(state=tk.NORMAL)
             self.url_entry.config(state=tk.NORMAL)
             self.cust_entry.config(state=tk.NORMAL)
+            self.browser_combo.config(state="readonly")
             self.csv_entry.config(state=tk.NORMAL)
             self.status_var.set("Idle / Ready")
 
@@ -240,6 +261,7 @@ class AgilicoImporterApp:
     def _start_import_thread(self):
         url = self.url_var.get().strip()
         customer_name = self.customer_var.get().strip()
+        browser_choice = self.browser_var.get().strip()
         csv_path = self.csv_path_var.get().strip()
 
         if not url or url == "https://":
@@ -253,7 +275,11 @@ class AgilicoImporterApp:
         self._set_ui_state(True)
         self.stop_requested = False
 
-        thread = threading.Thread(target=self._run_automation, args=(url, customer_name, csv_path), daemon=True)
+        thread = threading.Thread(
+            target=self._run_automation,
+            args=(url, customer_name, browser_choice, csv_path),
+            daemon=True,
+        )
         thread.start()
 
     def _read_contacts_csv(self, csv_path: str):
@@ -264,7 +290,6 @@ class AgilicoImporterApp:
             if not reader.fieldnames:
                 return contacts
 
-            # Normalize column names for flexible matching
             field_map = {}
             for col in reader.fieldnames:
                 normalized = col.strip().lower().replace("_", " ").replace("-", " ")
@@ -317,6 +342,72 @@ class AgilicoImporterApp:
                     })
 
         return contacts
+
+    def _create_browser_driver(self, browser_choice: str):
+        """
+        Attempts to launch the user's selected or available browser (Edge, Chrome, Firefox).
+        Modern Selenium handles driver management natively.
+        """
+        b_lower = browser_choice.lower()
+
+        # Browser launching helper functions
+        def try_edge():
+            opts = EdgeOptions()
+            opts.add_argument("--start-maximized")
+            opts.add_argument("--disable-notifications")
+            opts.add_argument("--disable-popup-blocking")
+            opts.add_experimental_option("excludeSwitches", ["enable-automation"])
+            opts.add_experimental_option("useAutomationExtension", False)
+            return webdriver.Edge(options=opts), "Microsoft Edge"
+
+        def try_chrome():
+            opts = ChromeOptions()
+            opts.add_argument("--start-maximized")
+            opts.add_argument("--disable-notifications")
+            opts.add_argument("--disable-popup-blocking")
+            opts.add_experimental_option("excludeSwitches", ["enable-automation"])
+            opts.add_experimental_option("useAutomationExtension", False)
+            return webdriver.Chrome(options=opts), "Google Chrome"
+
+        def try_firefox():
+            opts = FirefoxOptions()
+            return webdriver.Firefox(options=opts), "Mozilla Firefox"
+
+        # Specific user choice with fallback
+        if "edge" in b_lower and "auto" not in b_lower:
+            try:
+                return try_edge()
+            except Exception as e:
+                self.log(f"Microsoft Edge launch issue ({str(e).splitlines()[0]}). Trying other browsers...", level="WARNING")
+        elif "chrome" in b_lower and "auto" not in b_lower:
+            try:
+                return try_chrome()
+            except Exception as e:
+                self.log(f"Google Chrome launch issue ({str(e).splitlines()[0]}). Trying other browsers...", level="WARNING")
+        elif "firefox" in b_lower and "auto" not in b_lower:
+            try:
+                return try_firefox()
+            except Exception as e:
+                self.log(f"Mozilla Firefox launch issue ({str(e).splitlines()[0]}). Trying other browsers...", level="WARNING")
+
+        # Auto-Detect: Try Microsoft Edge first (native on Windows), then Chrome, then Firefox
+        attempts = [
+            ("Microsoft Edge", try_edge),
+            ("Google Chrome", try_chrome),
+            ("Mozilla Firefox", try_firefox),
+        ]
+
+        last_err = None
+        for name, launcher in attempts:
+            try:
+                self.log(f"Attempting to launch {name}...", level="INFO")
+                driver, b_name = launcher()
+                return driver, b_name
+            except Exception as ex:
+                last_err = ex
+                self.log(f"{name} not available or failed to start: {str(ex).splitlines()[0]}", level="MUTED")
+
+        raise WebDriverException(f"Could not find or launch any supported browser (Edge, Chrome, Firefox). Error: {last_err}")
 
     def _find_input_field(self, driver, wait, field_identifiers):
         """Attempts multiple robust strategies to locate the form input for a specific field."""
@@ -429,7 +520,7 @@ class AgilicoImporterApp:
 
         return False
 
-    def _show_login_dialog_sync(self, customer_name: str):
+    def _show_login_dialog_sync(self, customer_name: str, browser_name: str):
         """Displays a modal dialog asking the user to log in and proceed."""
         result = {"ok": False}
         evt = threading.Event()
@@ -438,12 +529,12 @@ class AgilicoImporterApp:
             if customer_name:
                 cust_info = f"Target Customer: '{customer_name}' (will be switched automatically)"
             else:
-                cust_info = "Please switch to your target customer and navigate to 'Contacts' in Chrome."
+                cust_info = "Please switch to your target customer and navigate to 'Contacts' in the browser."
 
             res = messagebox.askokcancel(
-                "Action Required - Agilico Login",
-                "Chrome has launched and navigated to the Agilico customer portal.\n\n"
-                "1. Please log in to your portal account in Chrome.\n"
+                "Action Required - Portal Login",
+                f"{browser_name} has launched and navigated to the Agilico customer portal.\n\n"
+                f"1. Please log in to your portal account in {browser_name}.\n"
                 f"2. {cust_info}\n"
                 "3. Click 'OK' when you are ready to begin.\n\n"
                 "(Click 'Cancel' to abort)",
@@ -530,7 +621,6 @@ class AgilicoImporterApp:
         current_url = self.driver.current_url
         if "contact" not in current_url.lower():
             self.log("Navigating to customer Contacts view...", level="INFO")
-            # Try clicking Contacts nav link or navigating directly
             try:
                 contact_nav = self.driver.find_element(By.XPATH, "//a[contains(., 'Contacts') or contains(@href, 'Contact')]")
                 if contact_nav.is_displayed():
@@ -545,7 +635,7 @@ class AgilicoImporterApp:
 
         self.log("Customer tenant switched successfully. Ready on Contacts view.", level="SUCCESS")
 
-    def _run_automation(self, url: str, customer_name: str, csv_path: str):
+    def _run_automation(self, url: str, customer_name: str, browser_choice: str, csv_path: str):
         self.log("Starting automation workflow...", level="INFO")
         try:
             # Step 1: Read CSV
@@ -558,22 +648,10 @@ class AgilicoImporterApp:
 
             self.log(f"Found {len(contacts)} contacts to import.", level="SUCCESS")
 
-            # Step 2: Initialize Selenium Chrome Driver
-            self.log("Initializing Chrome browser...", level="INFO")
-            options = Options()
-            options.add_argument("--start-maximized")
-            options.add_argument("--disable-notifications")
-            options.add_argument("--disable-popup-blocking")
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_experimental_option("useAutomationExtension", False)
-
-            try:
-                service = Service(ChromeDriverManager().install())
-                self.driver = webdriver.Chrome(service=service, options=options)
-            except Exception as e:
-                self.log(f"Failed to initialize ChromeDriver via webdriver-manager: {str(e)}", level="WARNING")
-                self.log("Attempting direct Chrome launch...", level="INFO")
-                self.driver = webdriver.Chrome(options=options)
+            # Step 2: Initialize Web Browser (Edge, Chrome, or Firefox)
+            self.log("Detecting and initializing web browser...", level="INFO")
+            self.driver, browser_name = self._create_browser_driver(browser_choice)
+            self.log(f"Successfully launched {browser_name}.", level="SUCCESS")
 
             # Step 3: Navigate to Agilico Portal
             self.log(f"Navigating to {url}...", level="INFO")
@@ -581,7 +659,7 @@ class AgilicoImporterApp:
 
             # Step 4: Show Login Prompt Dialog
             self.log("Waiting for user login confirmation...", level="WARNING")
-            user_confirmed = self._show_login_dialog_sync(customer_name)
+            user_confirmed = self._show_login_dialog_sync(customer_name, browser_name)
 
             if not user_confirmed or self.stop_requested:
                 self.log("Import cancelled by user.", level="WARNING")
@@ -594,7 +672,7 @@ class AgilicoImporterApp:
                 try:
                     self._switch_tenant(url, customer_name, wait)
                 except Exception as ex:
-                    self.log(f"Tenant switch error: {str(ex)}. Please ensure you are on the Contacts page.", level="WARNING")
+                    self.log(f"Tenant switch warning: {str(ex)}. Continuing...", level="WARNING")
 
             self.log("Starting contact import process...", level="SUCCESS")
 
