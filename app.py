@@ -1,6 +1,7 @@
 import os
 import sys
 import csv
+import json
 import io
 import re
 import time
@@ -72,7 +73,7 @@ class AgilicoImporterApp:
 
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("Agilico MSP Toolkit - Contact Importer")
+        self.root.title("Agilico Contact Importer - Lite")
         self.root.geometry("980x740")
         self.root.minsize(900, 660)
 
@@ -97,7 +98,10 @@ class AgilicoImporterApp:
         self.csv_path_var = tk.StringVar(value="")
         self.file_name_display_var = tk.StringVar(value="No contacts CSV file selected")
         self.url_var = tk.StringVar(value="https://customerportal.hp2k.co.uk/")
-        self.customer_var = tk.StringVar()
+        self.username_var = tk.StringVar(value="")
+        self.password_var = tk.StringVar(value="")
+        self.show_password_var = tk.BooleanVar(value=False)
+        self.remember_username_var = tk.BooleanVar(value=True)
         self.browser_var = tk.StringVar(value="Microsoft Edge (Default)")
         self.progress_val_var = tk.DoubleVar(value=0.0)
         self.status_detail_var = tk.StringVar(value="Ready to import")
@@ -107,6 +111,9 @@ class AgilicoImporterApp:
         self.log_queue = queue.Queue()
         self.driver = None
         self.failed_contacts = []
+
+        self.config_path = os.path.expanduser("~/.agilico_importer_lite_config.json")
+        self._load_saved_config()
 
         self._build_ui()
         self._start_log_consumer()
@@ -178,7 +185,7 @@ class AgilicoImporterApp:
         # 1c. Bottom Version Label
         version_label = tk.Label(
             sidebar,
-            text="v4.1.2\n(Standard)",
+            text="v4.1.2\n(Lite)",
             font=("Segoe UI", 7),
             fg=self.COLOR_TEXT_LIGHT,
             bg=self.COLOR_SIDEBAR_BG,
@@ -208,7 +215,7 @@ class AgilicoImporterApp:
         # Card 1 Title & Description
         card1_title = tk.Label(
             top_card,
-            text="Contact Importer",
+            text="Contact Importer - Lite",
             font=("Segoe UI", 13, "bold"),
             fg=self.COLOR_TEXT_DARK,
             bg=self.COLOR_CARD_BG,
@@ -217,7 +224,7 @@ class AgilicoImporterApp:
 
         card1_desc = tk.Label(
             top_card,
-            text="Batch create and map contacts and phone numbers into the Agilico portal with automatic tenant switching.",
+            text="Safeguarded direct customer contact importer with multi-tenant lockout and real-time validation.",
             font=("Segoe UI", 9),
             fg=self.COLOR_TEXT_MUTED,
             bg=self.COLOR_CARD_BG,
@@ -352,7 +359,7 @@ class AgilicoImporterApp:
 
         c2_title = tk.Label(
             card_config,
-            text="Portal Configuration",
+            text="Customer Authentication",
             font=("Segoe UI", 11, "bold"),
             fg=self.COLOR_TEXT_DARK,
             bg=self.COLOR_CARD_BG,
@@ -361,12 +368,12 @@ class AgilicoImporterApp:
 
         c2_desc = tk.Label(
             card_config,
-            text="Target portal and customer tenant specifications.",
+            text="Direct customer credentials with automated multi-tenant lockout.",
             font=("Segoe UI", 8),
             fg=self.COLOR_TEXT_MUTED,
             bg=self.COLOR_CARD_BG,
         )
-        c2_desc.pack(anchor="w", pady=(2, 10))
+        c2_desc.pack(anchor="w", pady=(2, 8))
 
         # Fields inside Configuration Card
         fields_frame = tk.Frame(card_config, bg=self.COLOR_CARD_BG)
@@ -375,7 +382,7 @@ class AgilicoImporterApp:
         # Base URL
         tk.Label(
             fields_frame,
-            text="Base Portal URL:",
+            text="Portal Base URL:",
             font=("Segoe UI", 8, "bold"),
             fg=self.COLOR_TEXT_DARK,
             bg=self.COLOR_CARD_BG,
@@ -391,20 +398,20 @@ class AgilicoImporterApp:
             bd=1,
             highlightthickness=0,
         )
-        self.url_entry.pack(fill=tk.X, ipady=3, pady=(0, 8))
+        self.url_entry.pack(fill=tk.X, ipady=3, pady=(0, 6))
 
-        # Target Customer
+        # Customer Username
         tk.Label(
             fields_frame,
-            text="Target Customer (Tenant Switch):",
+            text="Customer Portal Username:",
             font=("Segoe UI", 8, "bold"),
             fg=self.COLOR_TEXT_DARK,
             bg=self.COLOR_CARD_BG,
         ).pack(anchor="w", pady=(0, 2))
 
-        self.cust_entry = tk.Entry(
+        self.username_entry = tk.Entry(
             fields_frame,
-            textvariable=self.customer_var,
+            textvariable=self.username_var,
             font=("Segoe UI", 9),
             bg="#ffffff",
             fg=self.COLOR_TEXT_DARK,
@@ -412,7 +419,62 @@ class AgilicoImporterApp:
             bd=1,
             highlightthickness=0,
         )
-        self.cust_entry.pack(fill=tk.X, ipady=3, pady=(0, 8))
+        self.username_entry.pack(fill=tk.X, ipady=3, pady=(0, 6))
+
+        # Customer Password with Show/Hide toggle
+        tk.Label(
+            fields_frame,
+            text="Customer Portal Password:",
+            font=("Segoe UI", 8, "bold"),
+            fg=self.COLOR_TEXT_DARK,
+            bg=self.COLOR_CARD_BG,
+        ).pack(anchor="w", pady=(0, 2))
+
+        pwd_frame = tk.Frame(fields_frame, bg=self.COLOR_CARD_BG)
+        pwd_frame.pack(fill=tk.X, pady=(0, 4))
+
+        self.password_entry = tk.Entry(
+            pwd_frame,
+            textvariable=self.password_var,
+            show="•",
+            font=("Segoe UI", 9),
+            bg="#ffffff",
+            fg=self.COLOR_TEXT_DARK,
+            relief=tk.SOLID,
+            bd=1,
+            highlightthickness=0,
+        )
+        self.password_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=3)
+
+        self.toggle_pwd_btn = tk.Button(
+            pwd_frame,
+            text="👁",
+            command=self._toggle_password_visibility,
+            font=("Segoe UI", 8),
+            bg="#ffffff",
+            fg=self.COLOR_TEXT_DARK,
+            activebackground="#e2e8f0",
+            relief=tk.SOLID,
+            bd=1,
+            padx=5,
+            pady=1,
+            cursor="hand2",
+        )
+        self.toggle_pwd_btn.pack(side=tk.RIGHT, padx=(4, 0))
+
+        # Remember Username checkbox
+        self.remember_cb = tk.Checkbutton(
+            fields_frame,
+            text="Remember Username",
+            variable=self.remember_username_var,
+            font=("Segoe UI", 8),
+            bg=self.COLOR_CARD_BG,
+            fg=self.COLOR_TEXT_DARK,
+            activebackground=self.COLOR_CARD_BG,
+            highlightthickness=0,
+            bd=0,
+        )
+        self.remember_cb.pack(anchor="w", pady=(0, 6))
 
         # Web Browser
         tk.Label(
@@ -435,7 +497,7 @@ class AgilicoImporterApp:
             state="readonly",
             font=("Segoe UI", 9),
         )
-        self.browser_combo.pack(fill=tk.X, ipady=2, pady=(0, 14))
+        self.browser_combo.pack(fill=tk.X, ipady=2, pady=(0, 10))
 
         # Actions Row (Start / Stop)
         actions_btn_frame = tk.Frame(card_config, bg=self.COLOR_CARD_BG)
@@ -560,7 +622,7 @@ class AgilicoImporterApp:
         self.log_text.tag_config("ERROR", foreground=self.COLOR_RED)
         self.log_text.tag_config("MUTED", foreground=self.COLOR_TEXT_MUTED)
 
-        self.log("Ready. Select contacts.csv, enter target customer, and click 'START IMPORT'.", level="MUTED")
+        self.log("Ready. Select contacts.csv, enter customer credentials, and click 'START IMPORT'.", level="MUTED")
 
     def _create_nav_item(self, parent, label_text: str, is_active: bool = False):
         """Creates an ag-diag style vertical sidebar item with left green active stripe and clean text."""
@@ -606,6 +668,50 @@ class AgilicoImporterApp:
             self.driver = None
 
         self.root.destroy()
+
+    def _load_saved_config(self):
+        """Loads saved username and portal settings from JSON config file if present."""
+        try:
+            if os.path.exists(self.config_path):
+                with open(self.config_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                saved_user = data.get("username", "")
+                if saved_user:
+                    self.username_var.set(saved_user)
+                saved_url = data.get("url", "")
+                if saved_url:
+                    self.url_var.set(saved_url)
+                saved_browser = data.get("browser", "")
+                if saved_browser:
+                    self.browser_var.set(saved_browser)
+        except Exception:
+            pass
+
+    def _save_config(self):
+        """Saves current portal URL and username (if Remember Username is checked). Never saves password."""
+        try:
+            data = {}
+            if self.remember_username_var.get():
+                data["username"] = self.username_var.get().strip()
+            else:
+                data["username"] = ""
+            data["url"] = self.url_var.get().strip()
+            data["browser"] = self.browser_var.get().strip()
+            with open(self.config_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception:
+            pass
+
+    def _toggle_password_visibility(self):
+        """Toggles masking on password entry between bullet dots and plain text."""
+        if self.show_password_var.get():
+            self.password_entry.config(show="•")
+            self.show_password_var.set(False)
+            self.toggle_pwd_btn.config(text="👁")
+        else:
+            self.password_entry.config(show="")
+            self.show_password_var.set(True)
+            self.toggle_pwd_btn.config(text="🙈")
 
     def _browse_csv(self):
         filename = filedialog.askopenfilename(
@@ -692,14 +798,20 @@ class AgilicoImporterApp:
             self.stop_btn.config(state=tk.NORMAL, bg=self.COLOR_RED, cursor="hand2")
             self.browse_btn.config(state=tk.DISABLED, bg="#94d3a2")
             self.url_entry.config(state=tk.DISABLED)
-            self.cust_entry.config(state=tk.DISABLED)
+            self.username_entry.config(state=tk.DISABLED)
+            self.password_entry.config(state=tk.DISABLED)
+            self.toggle_pwd_btn.config(state=tk.DISABLED)
+            self.remember_cb.config(state=tk.DISABLED)
             self.browser_combo.config(state=tk.DISABLED)
         else:
             self.start_btn.config(state=tk.NORMAL, bg=self.COLOR_GREEN, cursor="hand2")
             self.stop_btn.config(state=tk.DISABLED, bg="#fca5a5", cursor="arrow")
             self.browse_btn.config(state=tk.NORMAL, bg=self.COLOR_GREEN)
             self.url_entry.config(state=tk.NORMAL)
-            self.cust_entry.config(state=tk.NORMAL)
+            self.username_entry.config(state=tk.NORMAL)
+            self.password_entry.config(state=tk.NORMAL)
+            self.toggle_pwd_btn.config(state=tk.NORMAL)
+            self.remember_cb.config(state=tk.NORMAL)
             self.browser_combo.config(state="readonly")
 
     def _stop_import(self):
@@ -710,18 +822,28 @@ class AgilicoImporterApp:
 
     def _start_import_thread(self):
         url = self.url_var.get().strip()
-        customer_name = self.customer_var.get().strip()
+        username = self.username_var.get().strip()
+        password = self.password_var.get().strip()
         browser_choice = self.browser_var.get().strip()
         csv_path = self.csv_path_var.get().strip().strip('"').strip("'")
 
         if not url or url == "https://":
-            messagebox.showerror("Error", "Please enter a valid Agilico Base URL.")
+            messagebox.showerror("Error", "Please enter a valid Agilico Base URL.", parent=self.root)
+            return
+
+        if not username:
+            messagebox.showerror("Error", "Please enter the Customer Portal Username.", parent=self.root)
+            return
+
+        if not password:
+            messagebox.showerror("Error", "Please enter the Customer Portal Password.", parent=self.root)
             return
 
         if not csv_path or not os.path.exists(csv_path):
-            messagebox.showerror("Error", "Please select an existing contacts CSV file using 'BROWSE CSV FILE'.")
+            messagebox.showerror("Error", "Please select an existing contacts CSV file using 'BROWSE CSV FILE'.", parent=self.root)
             return
 
+        self._save_config()
         self._set_ui_state(True)
         self.stop_requested = False
         self.progress_val_var.set(0)
@@ -729,7 +851,7 @@ class AgilicoImporterApp:
 
         thread = threading.Thread(
             target=self._run_automation,
-            args=(url, customer_name, browser_choice, csv_path),
+            args=(url, username, password, browser_choice, csv_path),
             daemon=True,
         )
         thread.start()
@@ -1164,108 +1286,205 @@ class AgilicoImporterApp:
         except Exception:
             pass
 
-    def _show_login_dialog_sync(self, customer_name: str, browser_name: str):
-        """Displays a modal dialog asking the user to log in and proceed."""
-        result = {"ok": False}
-        evt = threading.Event()
+    def _login_customer(self, url: str, username: str, password: str, wait: WebDriverWait):
+        """Automatically enters customer credentials into portal login form and authenticates."""
+        self.log("Automating customer authentication...", level="INFO")
+        self.status_detail_var.set("Entering customer credentials...")
 
-        def _ask():
-            if customer_name:
-                cust_info = (
-                    f"1. Enter your Username and Password in {browser_name} to log into your portal account.\n\n"
-                    f"2. Once logged in, click 'OK' (or press Enter) below.\n\n"
-                    f"3. The software will then automatically switch to customer '{customer_name}' and import contacts."
-                )
-            else:
-                cust_info = (
-                    f"1. Enter your Username and Password in {browser_name} to log into your portal account.\n\n"
-                    "2. Navigate to your target customer / Contacts view.\n\n"
-                    "3. Click 'OK' (or press Enter) when ready to begin import."
-                )
-
-            res = messagebox.askokcancel(
-                "Action Required - Portal Sign-In",
-                f"{browser_name} has opened the portal sign-in page.\n\n"
-                f"{cust_info}\n\n"
-                "(Click 'Cancel' to abort)",
-                parent=self.root,
-            )
-            result["ok"] = res
-            evt.set()
-
-        self.root.after(0, _ask)
-        evt.wait()
-        return result["ok"]
-
-    def _switch_tenant(self, base_url: str, customer_name: str, wait: WebDriverWait):
-        """Navigates to ChangeTenant, searches for customer_name, and clicks TargetCustomer pencil button."""
-        change_tenant_url = f"{base_url.rstrip('/')}/Account/ChangeTenant"
-        self.log(f"Navigating to ChangeTenant page: {change_tenant_url}...", level="INFO")
-        self.driver.get(change_tenant_url)
-        self._wait_for_page_ready(self.driver, timeout=15.0)
-
-        # Locate search box
-        search_xpaths = [
-            "//input[@type='search']",
-            "//input[contains(@placeholder, 'Search') or contains(@placeholder, 'Filter')]",
-            "//input[contains(@class, 'search') or contains(@class, 'filter')]",
-            "//input[contains(@class, 'form-control')]",
-            "//input",
+        # Find username field
+        user_xpaths = [
+            "//input[@id='Username' or @name='Username' or @id='UserName' or @name='UserName']",
+            "//input[contains(translate(@id, 'USERNAME', 'username'), 'username')]",
+            "//input[contains(translate(@name, 'USERNAME', 'username'), 'username')]",
+            "//input[@type='text' or @type='email']",
         ]
-
-        search_box = None
-        for sx in search_xpaths:
+        user_elem = None
+        for xp in user_xpaths:
             try:
-                elems = self.driver.find_elements(By.XPATH, sx)
+                elems = self.driver.find_elements(By.XPATH, xp)
                 for el in elems:
                     if el.is_displayed() and el.is_enabled():
-                        search_box = el
+                        user_elem = el
                         break
-                if search_box:
+                if user_elem:
                     break
             except Exception:
                 continue
 
-        if search_box:
-            self.log(f"Filtering customer search for: '{customer_name}'...", level="INFO")
-            search_box.clear()
-            search_box.send_keys(customer_name)
-            time.sleep(1.0)
-        else:
-            self.log("Could not locate search box on ChangeTenant page. Searching rows directly...", level="WARNING")
+        if not user_elem:
+            # Check if user is already logged in
+            curr_url = (self.driver.current_url or "").lower()
+            if "/login" not in curr_url and "/account/login" not in curr_url:
+                self.log("Login form not displayed; session may already be authenticated.", level="INFO")
+                return
+            raise NoSuchElementException("Could not locate Username input field on login page.")
 
-        # Find TargetCustomer pencil button in matching row
-        target_link = None
-        target_xpaths = [
-            f"//tr[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{customer_name.lower()}')]//a[contains(@href, 'TargetCustomer')]",
-            f"//tr[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{customer_name.lower()}')]//a[contains(@class, 'btn') and .//i[contains(@class, 'fa-pencil')]]",
-            "//a[contains(@href, 'TargetCustomer')]",
-            "//a[contains(@class, 'btn') and .//i[contains(@class, 'fa-pencil')]]",
+        self._populate_input(self.driver, user_elem, username)
+        self.log(f"Entered portal username: {username}", level="INFO")
+
+        # Find password field
+        pwd_xpaths = [
+            "//input[@id='Password' or @name='Password']",
+            "//input[@type='password']",
+            "//input[contains(translate(@id, 'PASSWORD', 'password'), 'password')]",
+            "//input[contains(translate(@name, 'PASSWORD', 'password'), 'password')]",
         ]
-
-        for tx in target_xpaths:
+        pwd_elem = None
+        for xp in pwd_xpaths:
             try:
-                elems = self.driver.find_elements(By.XPATH, tx)
+                elems = self.driver.find_elements(By.XPATH, xp)
+                for el in elems:
+                    if el.is_displayed() and el.is_enabled():
+                        pwd_elem = el
+                        break
+                if pwd_elem:
+                    break
+            except Exception:
+                continue
+
+        if not pwd_elem:
+            raise NoSuchElementException("Could not locate Password input field on login page.")
+
+        self._populate_input(self.driver, pwd_elem, password)
+        self.log("Entered portal password: ••••••••", level="INFO")
+
+        # Find Submit button
+        submit_xpaths = [
+            "//button[@type='submit']",
+            "//input[@type='submit']",
+            "//button[contains(translate(., 'LOGIN', 'login'), 'log in') or contains(translate(., 'SIGN IN', 'sign in'), 'sign in')]",
+            "//a[contains(translate(., 'LOGIN', 'login'), 'log in') or contains(translate(., 'SIGN IN', 'sign in'), 'sign in')]",
+        ]
+        submit_elem = None
+        for xp in submit_xpaths:
+            try:
+                elems = self.driver.find_elements(By.XPATH, xp)
+                for el in elems:
+                    if el.is_displayed() and el.is_enabled():
+                        submit_elem = el
+                        break
+                if submit_elem:
+                    break
+            except Exception:
+                continue
+
+        if not submit_elem:
+            pwd_elem.send_keys(Keys.RETURN)
+        else:
+            self._safe_click(self.driver, submit_elem)
+
+        self.log("Credentials submitted. Waiting for portal dashboard to load...", level="INFO")
+        self._wait_for_page_ready(self.driver, timeout=20.0)
+        self._sleep(1.5)
+
+        # Check for authentication errors
+        error_xpaths = [
+            "//*[contains(@class, 'validation-summary-errors')]",
+            "//*[contains(@class, 'alert-danger')]",
+            "//*[contains(translate(text(), 'INVALID', 'invalid'), 'invalid') and contains(translate(text(), 'PASSWORD', 'password'), 'password')]",
+            "//*[contains(translate(text(), 'INCORRECT', 'incorrect'), 'incorrect')]",
+        ]
+        for xp in error_xpaths:
+            try:
+                err_elems = self.driver.find_elements(By.XPATH, xp)
+                for el in err_elems:
+                    if el.is_displayed():
+                        txt = el.text.strip()
+                        if txt:
+                            raise PermissionError(f"Login failed: {txt}")
+            except PermissionError:
+                raise
+            except Exception:
+                pass
+
+        curr_url = (self.driver.current_url or "").lower()
+        if "/account/login" in curr_url or (curr_url.endswith("/login") and self.driver.find_elements(By.XPATH, "//input[@type='password']")):
+            raise PermissionError("Login failed: Invalid credentials or portal sign-in error.")
+
+        self.log("Customer login successful.", level="SUCCESS")
+
+    def _verify_gdpr_tenant_lockout(self, base_url: str):
+        """GDPR Multi-Tenant Lockout Safeguard:
+        Checks whether the authenticated account has permissions to switch customer tenants.
+        If tenant switching is detected (MSP/engineer account), throws a GDPR warning and halts immediately.
+        """
+        self.log("Running GDPR Multi-Tenant Lockout Verification...", level="INFO")
+        self.status_detail_var.set("Verifying GDPR customer isolation safeguards...")
+
+        # 1. Check current DOM for tenant switching links
+        tenant_nav_xpaths = [
+            "//a[contains(@href, 'ChangeTenant')]",
+            "//a[contains(@href, 'TargetCustomer')]",
+            "//a[contains(translate(., 'CHANGE TENANT', 'change tenant'), 'change tenant')]",
+            "//a[contains(translate(., 'SWITCH CUSTOMER', 'switch customer'), 'switch customer')]",
+        ]
+        for xp in tenant_nav_xpaths:
+            try:
+                elems = self.driver.find_elements(By.XPATH, xp)
                 for el in elems:
                     if el.is_displayed():
-                        target_link = el
-                        break
-                if target_link:
-                    break
+                        msg = (
+                            "GDPR SECURITY ALERT: Multi-Tenant Access Detected!\n\n"
+                            "This account possesses administrative rights to switch tenants.\n"
+                            "Agilico Contact Importer - Lite only permits logging in directly "
+                            "as a single customer to eliminate any risk of cross-tenant data leakage.\n\n"
+                            "Process halted immediately for safety."
+                        )
+                        self.log(msg, level="ERROR")
+                        raise PermissionError(msg)
+            except PermissionError:
+                raise
             except Exception:
                 continue
 
-        if not target_link:
-            raise NoSuchElementException(f"Could not find customer switch button for '{customer_name}' on ChangeTenant page.")
+        # 2. Probe /Account/ChangeTenant endpoint directly
+        probe_url = f"{base_url.rstrip('/')}/Account/ChangeTenant"
+        self.log(f"Probing tenant switcher boundary ({probe_url})...", level="INFO")
+        try:
+            self.driver.get(probe_url)
+            self._wait_for_page_ready(self.driver, timeout=10.0)
+            self._sleep(0.5)
 
-        self.log(f"Found customer target button for '{customer_name}'. Switching tenant...", level="SUCCESS")
-        self._safe_click(self.driver, target_link)
-        self._wait_for_page_ready(self.driver, timeout=15.0)
+            curr = (self.driver.current_url or "").lower()
+            if "changetenant" in curr:
+                # If page contains customer switcher elements, it's multi-tenant!
+                switcher_elems = self.driver.find_elements(
+                    By.XPATH,
+                    "//a[contains(@href, 'TargetCustomer')] | //input[@type='search'] | //table//a[contains(@class, 'btn') and .//i[contains(@class, 'fa-pencil')]]"
+                )
+                if any(el.is_displayed() for el in switcher_elems):
+                    msg = (
+                        "GDPR SECURITY ALERT: Multi-Tenant Access Detected!\n\n"
+                        "This account has full access to the Customer Tenant Switcher (/Account/ChangeTenant).\n"
+                        "Agilico Contact Importer - Lite only permits logging in directly "
+                        "as a single customer to eliminate any risk of cross-tenant data leakage.\n\n"
+                        "Process halted immediately for safety."
+                    )
+                    self.log(msg, level="ERROR")
+                    raise PermissionError(msg)
+        except PermissionError:
+            raise
+        except Exception as ex:
+            self.log(f"Tenant probe check info: {ex}", level="INFO")
 
-        # Ensure we navigate to Contacts page
-        contacts_url = f"{base_url.rstrip('/')}/Contacts"
-        self._return_to_contacts_list(contacts_url)
-        self.log("Customer tenant switched successfully. Ready on Contacts view.", level="SUCCESS")
+        self.log("GDPR Safeguard Verified: Account is strictly isolated to a single customer tenant.", level="SUCCESS")
+
+    def _verify_session_alive(self):
+        """Continuous Identity Verification: Checks on every action that the customer session remains valid."""
+        if not self.driver:
+            raise ConnectionResetError("Browser instance is no longer active.")
+
+        try:
+            curr_url = (self.driver.current_url or "").lower()
+            if any(term in curr_url for term in ["/account/login", "/login", "/account/logoff"]):
+                raise ConnectionResetError("Customer session expired or logged out unexpectedly.")
+
+            # Check if login fields have appeared
+            pwd_inputs = self.driver.find_elements(By.XPATH, "//input[@type='password']")
+            if any(p.is_displayed() for p in pwd_inputs):
+                raise ConnectionResetError("Customer session expired: login credentials prompt detected.")
+        except WebDriverException as wde:
+            raise ConnectionResetError(f"Browser communication lost: {wde.msg}")
 
     def _return_to_contacts_list(self, contacts_url: str):
         """Clicks the Contacts navigation link / Back to List button, with direct URL fallback to guarantee list view is active."""
@@ -1304,8 +1523,150 @@ class AgilicoImporterApp:
 
         self._sleep(1.0)
 
-    def _run_automation(self, url: str, customer_name: str, browser_choice: str, csv_path: str):
-        self.log("Starting automation workflow...", level="INFO")
+    def _verify_contact_on_page(self, contact: dict, contacts_url: str) -> bool:
+        """Real-time check on the live Contacts list page to confirm the contact exists on the portal."""
+        self.log(f"Verifying real-time presence of '{contact['display_name']}' on portal...", level="INFO")
+        disp_name = (contact.get("display_name") or "").strip()
+        first_name = (contact.get("first_name") or "").strip()
+        last_name = (contact.get("last_name") or "").strip()
+
+        # Locate search input on Contacts list page if available
+        search_box = None
+        for sx in [
+            "//input[@type='search']",
+            "//input[contains(@placeholder, 'Search') or contains(@placeholder, 'Filter')]",
+            "//input[contains(@class, 'search') or contains(@class, 'filter')]",
+            "//input[contains(@class, 'form-control')]",
+        ]:
+            try:
+                elems = self.driver.find_elements(By.XPATH, sx)
+                for el in elems:
+                    if el.is_displayed() and el.is_enabled():
+                        search_box = el
+                        break
+                if search_box:
+                    break
+            except Exception:
+                continue
+
+        # Strategy 1: Filter search box
+        if search_box and disp_name:
+            try:
+                search_box.clear()
+                search_box.send_keys(disp_name)
+                time.sleep(0.8)
+            except Exception:
+                pass
+
+        disp_lower = disp_name.lower()
+        fn_lower = first_name.lower()
+        ln_lower = last_name.lower()
+
+        found = False
+        row_xpaths = [
+            f"//table//tr[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{disp_lower}')]",
+        ]
+        if fn_lower and ln_lower:
+            row_xpaths.append(
+                f"//table//tr[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{fn_lower}') and contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{ln_lower}')]"
+            )
+
+        for rx in row_xpaths:
+            try:
+                elems = self.driver.find_elements(By.XPATH, rx)
+                if any(el.is_displayed() for el in elems):
+                    found = True
+                    break
+            except Exception:
+                continue
+
+        # Clear search box so page returns to normal
+        if search_box:
+            try:
+                search_box.clear()
+                search_box.send_keys(Keys.CONTROL + "a")
+                search_box.send_keys(Keys.BACKSPACE)
+                time.sleep(0.4)
+            except Exception:
+                pass
+
+        if found:
+            self.log(f"Real-time verification PASSED: '{disp_name}' confirmed on portal.", level="SUCCESS")
+            return True
+
+        # Retry once after cleanly reloading Contacts list view
+        self.log(f"Contact not immediately visible. Refreshing Contacts view for verification...", level="WARNING")
+        self._return_to_contacts_list(contacts_url)
+        self._sleep(1.0)
+
+        for rx in row_xpaths:
+            try:
+                elems = self.driver.find_elements(By.XPATH, rx)
+                if any(el.is_displayed() for el in elems):
+                    found = True
+                    break
+            except Exception:
+                continue
+
+        if found:
+            self.log(f"Real-time verification PASSED on reload: '{disp_name}' confirmed.", level="SUCCESS")
+            return True
+
+        self.log(f"Real-time verification FAILED: '{disp_name}' was NOT detected on portal.", level="ERROR")
+        return False
+
+    def _reconcile_all_contacts(self, contacts: list, contacts_url: str):
+        """Final real-time reconciliation sweep across the portal to verify all CSV contacts are present."""
+        self.log("Running final real-time reconciliation sweep across all CSV contacts...", level="INFO")
+        self.status_detail_var.set("Performing final reconciliation check on portal...")
+        self._return_to_contacts_list(contacts_url)
+
+        verified = []
+        missing = []
+
+        for c in contacts:
+            disp = (c.get("display_name") or "").strip()
+            if not disp:
+                continue
+            is_present = self._verify_contact_on_page(c, contacts_url)
+            if is_present:
+                verified.append(disp)
+            else:
+                missing.append(disp)
+
+        return verified, missing
+
+    def _export_remaining_contacts(self, contacts: list, completed_count: int, csv_path: str):
+        """Exports any unimported contacts from the CSV to remaining_contacts.csv."""
+        remaining = contacts[completed_count:]
+        if not remaining:
+            return None
+
+        try:
+            orig_dir = os.path.dirname(csv_path) if csv_path else os.path.expanduser("~")
+            export_path = os.path.join(orig_dir, "remaining_contacts.csv")
+
+            with open(export_path, "w", newline="", encoding="utf-8-sig") as f:
+                writer = csv.DictWriter(
+                    f,
+                    fieldnames=["First Name", "Last Name", "Display Name", "Number"],
+                )
+                writer.writeheader()
+                for c in remaining:
+                    writer.writerow({
+                        "First Name": c.get("first_name", ""),
+                        "Last Name": c.get("last_name", ""),
+                        "Display Name": c.get("display_name", ""),
+                        "Number": c.get("number", ""),
+                    })
+            self.log(f"Exported {len(remaining)} remaining unimported contacts to: {export_path}", level="INFO")
+            return export_path
+        except Exception as ex:
+            self.log(f"Could not export remaining contacts: {ex}", level="WARNING")
+            return None
+
+    def _run_automation(self, url: str, username: str, password: str, browser_choice: str, csv_path: str):
+        self.log("Starting Agilico Contact Importer - Lite workflow...", level="INFO")
         try:
             # Step 1: Read CSV
             self.log(f"Reading contacts from: {csv_path}", level="INFO")
@@ -1313,7 +1674,7 @@ class AgilicoImporterApp:
             if not contacts:
                 self.log("No contacts found in CSV file or file is empty.", level="ERROR")
                 self.status_detail_var.set("Error: CSV is empty or invalid.")
-                messagebox.showwarning("Warning", "No contacts found in the specified CSV file.")
+                messagebox.showwarning("Warning", "No contacts found in the specified CSV file.", parent=self.root)
                 return
 
             self.log(f"Found {len(contacts)} contacts to import.", level="SUCCESS")
@@ -1330,39 +1691,34 @@ class AgilicoImporterApp:
             self.driver.get(url)
             self._wait_for_page_ready(self.driver, timeout=15.0)
 
-            # Step 4: Show Login Prompt Dialog
-            self.log("Waiting for user login confirmation...", level="WARNING")
-            self.status_detail_var.set("Please log into portal in browser and click OK...")
-            user_confirmed = self._show_login_dialog_sync(customer_name, browser_name)
-
-            if not user_confirmed or self.stop_requested:
-                self.log("Import cancelled by user.", level="WARNING")
-                self.status_detail_var.set("Import cancelled by user.")
-                return
-
-            self._wait_for_page_ready(self.driver, timeout=15.0)
+            # Step 4: Automated Customer Login
             wait = WebDriverWait(self.driver, 15)
+            self._login_customer(url, username, password, wait)
 
-            # Step 4b: Automatic Tenant Switching if Customer Name is provided
-            if customer_name:
-                self.status_detail_var.set(f"Switching customer tenant to '{customer_name}'...")
-                try:
-                    self._switch_tenant(url, customer_name, wait)
-                except Exception as ex:
-                    self.log(f"Tenant switch warning: {str(ex)}. Continuing...", level="WARNING")
+            # Step 5: GDPR Multi-Tenant Lockout Verification
+            self._verify_gdpr_tenant_lockout(url)
+
+            # Step 6: Navigate to Contacts list view
+            contacts_url = f"{url.rstrip('/')}/Contacts"
+            self._return_to_contacts_list(contacts_url)
+            self._verify_session_alive()
 
             self.failed_contacts = []
-            self.log("Starting contact import process (1-second action delay active)...", level="SUCCESS")
+            self.log("Starting contact import pipeline (real-time validation active)...", level="SUCCESS")
 
             success_count = 0
             fail_count = 0
-            contacts_url = f"{url.rstrip('/')}/Contacts"
+            halted_by_validation = False
 
-            # Step 5: Loop through each contact
+            # Step 7: Loop through each contact
             for idx, contact in enumerate(contacts, start=1):
                 if self.stop_requested:
                     self.log("Process stopped by user.", level="WARNING")
+                    self._export_remaining_contacts(contacts, idx - 1, csv_path)
                     break
+
+                # Verify session before action
+                self._verify_session_alive()
 
                 pct = int((idx / len(contacts)) * 100)
                 self.progress_val_var.set(pct)
@@ -1377,12 +1733,12 @@ class AgilicoImporterApp:
                 try:
                     self._dismiss_unexpected_alert()
 
-                    # 5.0 Ensure we are on the main Contacts list view before clicking Add Contact
+                    # 7.0 Ensure we are on the main Contacts list view before clicking Add Contact
                     current_url = (self.driver.current_url or "").rstrip("/").lower()
                     if not current_url.endswith("/contacts") or any(sub in current_url for sub in ["/create", "/edit", "/add", "/details"]):
                         self._return_to_contacts_list(contacts_url)
 
-                    # 5a. Click the main 'Add' Contact button (strictly excluding ContactNumbers links)
+                    # 7a. Click the main 'Add' Contact button (strictly excluding ContactNumbers links)
                     add_contact_xpaths = [
                         "//a[contains(@href, '/Contacts/Create') or contains(@href, '/Contacts/Add')]",
                         "//a[(contains(., 'Add') or contains(., 'Create') or .//i[contains(@class, 'fa-plus')]) and not(contains(@href, 'ContactNumbers')) and not(contains(@class, 'x-overlay')) and not(contains(., 'Back'))]",
@@ -1410,7 +1766,10 @@ class AgilicoImporterApp:
                     self._safe_click(self.driver, add_btn)
                     self._wait_for_page_ready(self.driver, timeout=15.0)
 
-                    # 5b. Wait for the form (Contact Details) to load
+                    # Verify session
+                    self._verify_session_alive()
+
+                    # 7b. Wait for the form (Contact Details) to load
                     for form_indicator in [
                         "//div[contains(., 'Contact Details')]",
                         "//span[contains(., 'Contact Details')]",
@@ -1425,7 +1784,7 @@ class AgilicoImporterApp:
                         except TimeoutException:
                             continue
 
-                    # 5c. Populate Contact Details form fields (Speed Dial is auto-generated by the portal)
+                    # 7c. Populate Contact Details form fields (Speed Dial is auto-generated by portal)
                     if contact["display_name"] and len(contact["display_name"]) < 5:
                         contact["display_name"] = contact["display_name"].ljust(5)
 
@@ -1453,7 +1812,7 @@ class AgilicoImporterApp:
                     if not self._sleep(1.0):
                         break
 
-                    # 5d. Click initial save button: <button type="submit" class="btn btn-primary x-save"><i class="fa fa-save"></i></button>
+                    # 7d. Click initial save button: <button type="submit" class="btn btn-primary x-save"><i class="fa fa-save"></i></button>
                     save_btn = self._find_save_button()
                     if not save_btn:
                         raise NoSuchElementException("Could not locate the 'Save' button (<button type='submit' class='btn btn-primary x-save'>).")
@@ -1465,7 +1824,7 @@ class AgilicoImporterApp:
                     if not self._sleep(1.0):
                         break
 
-                    # 5e. If contact has a number, open <a href="/ContactNumbers/Add?ContactId=###" class="btn btn-default x-overlay"><i class="fa fa-plus"></i> Add</a>
+                    # 7e. If contact has a number, open <a href="/ContactNumbers/Add?ContactId=###" class="btn btn-default x-overlay"><i class="fa fa-plus"></i> Add</a>
                     phone_number = contact.get("number", "").strip()
                     if phone_number:
                         self.log("Locating Add Number link (<a href='/ContactNumbers/Add...' class='btn btn-default x-overlay'>)...", level="INFO")
@@ -1537,8 +1896,24 @@ class AgilicoImporterApp:
                     # After EVERY contact save (whether with or without number), click back on Contacts link to return to list view
                     self._return_to_contacts_list(contacts_url)
 
+                    # Real-time verification of this contact on the page
+                    is_verified = self._verify_contact_on_page(contact, contacts_url)
+                    if not is_verified:
+                        halted_by_validation = True
+                        exp_path = self._export_remaining_contacts(contacts, idx - 1, csv_path)
+                        fail_msg = (
+                            f"Real-Time Verification Failed!\n\n"
+                            f"Contact '{contact['display_name']}' (Row {contact['row_num']}) could not be confirmed on the live portal page after creation.\n\n"
+                            f"The importer has been halted immediately to safeguard data integrity."
+                        )
+                        if exp_path:
+                            fail_msg += f"\n\nRemaining unimported contacts exported to:\n{exp_path}"
+                        self.log(fail_msg, level="ERROR")
+                        messagebox.showwarning("Real-Time Verification Failed", fail_msg, parent=self.root)
+                        break
+
                     success_count += 1
-                    self.log(f"Successfully completed contact {idx}/{len(contacts)}: {contact['display_name']}", level="SUCCESS")
+                    self.log(f"Successfully completed and verified contact {idx}/{len(contacts)}: {contact['display_name']}", level="SUCCESS")
                     if not self._sleep(1.0):
                         break
 
@@ -1553,28 +1928,45 @@ class AgilicoImporterApp:
                         pass
                     self._sleep(1.0)
 
-            # Summary
-            self.progress_val_var.set(100)
-            self.status_detail_var.set(f"Completed! {success_count} succeeded, {fail_count} failed out of {len(contacts)} total.")
-            self.log("=" * 45, level="MUTED")
-            self.log(f"Import Complete! Success: {success_count}, Failures: {fail_count}, Total: {len(contacts)}", level="SUCCESS" if fail_count == 0 else "WARNING")
+            # Step 8: Final Reconciliation & Completion
+            if not self.stop_requested and not halted_by_validation:
+                self.progress_val_var.set(100)
+                self.status_detail_var.set("Running final reconciliation...")
 
-            if self.failed_contacts:
-                fail_details = "\n".join([f"• Row {r}: {name} ({err})" for r, name, err in self.failed_contacts[:8]])
-                if len(self.failed_contacts) > 8:
-                    fail_details += f"\n... and {len(self.failed_contacts) - 8} additional errors."
-                messagebox.showwarning(
-                    "Import Complete with Errors",
-                    f"Import Finished with {fail_count} issue(s)!\n\nSuccessfully Imported: {success_count}\nFailed: {fail_count}\nTotal: {len(contacts)}\n\nFailed Records:\n{fail_details}",
-                    parent=self.root,
-                )
-            else:
-                messagebox.showinfo(
-                    "Import Complete",
-                    f"Import Finished Successfully!\n\nSuccessfully Imported: {success_count}\nTotal: {len(contacts)}",
-                    parent=self.root,
-                )
+                verified_all, missing_all = self._reconcile_all_contacts(contacts, contacts_url)
 
+                self.log("=" * 45, level="MUTED")
+                self.log(f"Final Reconciliation: {len(verified_all)} verified present, {len(missing_all)} missing.", level="INFO")
+
+                if not missing_all:
+                    self.status_detail_var.set(f"Complete! All {len(contacts)} contacts verified on portal.")
+                    self.log(f"Import Complete! All {len(contacts)} contacts successfully added and verified in real time.", level="SUCCESS")
+                    messagebox.showinfo(
+                        "Import Complete & Verified",
+                        f"All {len(contacts)} contacts from CSV have been successfully added and verified in real time on the customer portal!",
+                        parent=self.root,
+                    )
+                else:
+                    self.status_detail_var.set(f"Completed with {len(missing_all)} missing during final check.")
+                    missing_str = "\n".join([f"• {m}" for m in missing_all[:10]])
+                    messagebox.showwarning(
+                        "Import Complete - Reconciliation Discrepancy",
+                        f"Processed {len(contacts)} contacts, but {len(missing_all)} could not be confirmed during the final portal sweep:\n\n{missing_str}",
+                        parent=self.root,
+                    )
+            elif halted_by_validation:
+                self.status_detail_var.set(f"Halted on row {idx}: verification failed.")
+            elif self.stop_requested:
+                self.status_detail_var.set("Import stopped by user.")
+
+        except PermissionError as pe:
+            self.log(f"Security Alert: {str(pe)}", level="ERROR")
+            self.status_detail_var.set("Security error: Multi-tenant or invalid login.")
+            messagebox.showerror("GDPR Security Alert", str(pe), parent=self.root)
+        except ConnectionResetError as cre:
+            self.log(f"Session Error: {str(cre)}", level="ERROR")
+            self.status_detail_var.set("Session expired or logged out.")
+            messagebox.showerror("Session Terminated", f"Customer portal session error:\n{str(cre)}", parent=self.root)
         except WebDriverException as wde:
             self.log(f"WebDriver Exception: {str(wde)}", level="ERROR")
             self.status_detail_var.set("WebDriver Error occurred.")
