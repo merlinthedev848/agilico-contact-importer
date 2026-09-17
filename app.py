@@ -1264,22 +1264,45 @@ class AgilicoImporterApp:
 
         # Ensure we navigate to Contacts page
         contacts_url = f"{base_url.rstrip('/')}/Contacts"
-        current_url = self.driver.current_url
-        if "contact" not in current_url.lower():
-            self.log("Navigating to customer Contacts view...", level="INFO")
-            try:
-                contact_nav = self.driver.find_element(By.XPATH, "//a[contains(., 'Contacts') or contains(@href, 'Contact')]")
-                if contact_nav.is_displayed():
-                    contact_nav.click()
-                    self._wait_for_page_ready(self.driver, timeout=15.0)
-                else:
-                    self.driver.get(contacts_url)
-                    self._wait_for_page_ready(self.driver, timeout=15.0)
-            except Exception:
-                self.driver.get(contacts_url)
-                self._wait_for_page_ready(self.driver, timeout=15.0)
-
+        self._return_to_contacts_list(contacts_url)
         self.log("Customer tenant switched successfully. Ready on Contacts view.", level="SUCCESS")
+
+    def _return_to_contacts_list(self, contacts_url: str):
+        """Clicks the Contacts navigation link / Back to List button, with direct URL fallback to guarantee list view is active."""
+        self.log("Navigating back to Contacts list view (clicking Contacts link)...", level="INFO")
+        self._dismiss_unexpected_alert()
+
+        # Try clicking Contacts nav link or Back to list
+        nav_xpaths = [
+            "//a[contains(@href, '/Contacts') and (normalize-space(.)='Contacts' or contains(., 'Back') or contains(., 'List')) and not(contains(@href, 'ContactNumbers')) and not(contains(@href, 'Create')) and not(contains(@href, 'Edit'))]",
+            "//a[(normalize-space(.)='Contacts' or normalize-space(.)='Back to List' or contains(., 'Back to List')) and not(contains(@href, 'ContactNumbers'))]",
+            "//ul[contains(@class, 'nav') or contains(@class, 'navbar') or contains(@class, 'sidebar')]//a[contains(., 'Contacts') or contains(@href, '/Contacts')]",
+            "//a[contains(@href, '/Contacts') and not(contains(@href, 'ContactNumbers')) and not(contains(@href, 'Create')) and not(contains(@href, 'Edit')) and not(contains(@href, 'Add'))]",
+        ]
+
+        clicked = False
+        for xpath in nav_xpaths:
+            try:
+                elems = self.driver.find_elements(By.XPATH, xpath)
+                for el in elems:
+                    if el.is_displayed() and el.is_enabled():
+                        self._safe_click(self.driver, el)
+                        self._wait_for_page_ready(self.driver, timeout=15.0)
+                        clicked = True
+                        break
+                if clicked:
+                    break
+            except Exception:
+                continue
+
+        # Direct navigation fallback if URL is not on /Contacts list view
+        current = (self.driver.current_url or "").rstrip("/").lower()
+        if not clicked or not current.endswith("/contacts") or any(sub in current for sub in ["/create", "/edit", "/add", "/details"]):
+            self.log(f"Confirming navigation to Contacts list: {contacts_url}...", level="INFO")
+            self.driver.get(contacts_url)
+            self._wait_for_page_ready(self.driver, timeout=15.0)
+
+        self._sleep(1.0)
 
     def _run_automation(self, url: str, customer_name: str, browser_choice: str, csv_path: str):
         self.log("Starting automation workflow...", level="INFO")
@@ -1355,32 +1378,30 @@ class AgilicoImporterApp:
                     self._dismiss_unexpected_alert()
 
                     # 5.0 Ensure we are on the main Contacts list view before clicking Add Contact
-                    current_url = self.driver.current_url
-                    if not current_url.rstrip("/").lower().endswith("/contacts"):
-                        self.log(f"Returning to Contacts list: {contacts_url}...", level="INFO")
-                        self.driver.get(contacts_url)
-                        self._wait_for_page_ready(self.driver, timeout=15.0)
+                    current_url = (self.driver.current_url or "").rstrip("/").lower()
+                    if not current_url.endswith("/contacts") or any(sub in current_url for sub in ["/create", "/edit", "/add", "/details"]):
+                        self._return_to_contacts_list(contacts_url)
 
-                    # 5a. Click the main 'Add' Contact button
-                    add_button_xpath = "//a[contains(., 'Add')] | //button[contains(., 'Add')]"
+                    # 5a. Click the main 'Add' Contact button (strictly excluding ContactNumbers links)
+                    add_contact_xpaths = [
+                        "//a[contains(@href, '/Contacts/Create') or contains(@href, '/Contacts/Add')]",
+                        "//a[(contains(., 'Add') or contains(., 'Create') or .//i[contains(@class, 'fa-plus')]) and not(contains(@href, 'ContactNumbers')) and not(contains(@class, 'x-overlay')) and not(contains(., 'Back'))]",
+                        "//button[(contains(., 'Add') or contains(., 'Create') or .//i[contains(@class, 'fa-plus')]) and not(contains(@class, 'x-overlay')) and not(contains(., 'Back'))]",
+                        "//a[contains(translate(., 'ADD', 'add'), 'add') and not(contains(@href, 'ContactNumbers')) and not(contains(@class, 'x-overlay')) and not(contains(., 'Back'))]",
+                    ]
                     add_btn = None
-                    try:
-                        add_btn = wait.until(EC.element_to_be_clickable((By.XPATH, add_button_xpath)))
-                    except TimeoutException:
-                        alt_xpaths = [
-                            "//a[contains(@href, 'Create') or contains(@href, 'Add')]",
-                            "//button[contains(translate(., 'ADD', 'add'), 'add')]",
-                            "//a[contains(translate(., 'ADD', 'add'), 'add')]",
-                            "//span[contains(text(), 'Add')]/ancestor::button[1]",
-                            "//span[contains(text(), 'Add')]/ancestor::a[1]",
-                        ]
-                        for alt in alt_xpaths:
-                            try:
-                                add_btn = self.driver.find_element(By.XPATH, alt)
-                                if add_btn.is_displayed():
-                                    break
-                            except Exception:
-                                continue
+                    for xpath in add_contact_xpaths:
+                        try:
+                            elems = self.driver.find_elements(By.XPATH, xpath)
+                            for el in elems:
+                                if el.is_displayed() and el.is_enabled():
+                                    if not self._is_back_or_nav_element(el):
+                                        add_btn = el
+                                        break
+                            if add_btn:
+                                break
+                        except Exception:
+                            continue
 
                     if not add_btn:
                         raise NoSuchElementException("Could not locate the 'Add' button on Contacts view.")
@@ -1513,6 +1534,9 @@ class AgilicoImporterApp:
                                 self._wait_for_page_ready(self.driver, timeout=15.0)
                                 self.log(f"Final contact save confirmed for {contact['display_name']}.", level="SUCCESS")
 
+                    # After EVERY contact save (whether with or without number), click back on Contacts link to return to list view
+                    self._return_to_contacts_list(contacts_url)
+
                     success_count += 1
                     self.log(f"Successfully completed contact {idx}/{len(contacts)}: {contact['display_name']}", level="SUCCESS")
                     if not self._sleep(1.0):
@@ -1523,6 +1547,10 @@ class AgilicoImporterApp:
                     err_msg = str(ex).splitlines()[0] if str(ex) else "Unknown error"
                     self.failed_contacts.append((contact.get("row_num", idx), contact.get("display_name", "Unknown"), err_msg))
                     self.log(f"Error processing row {contact['row_num']} ({contact['display_name']}): {err_msg}", level="ERROR")
+                    try:
+                        self._return_to_contacts_list(contacts_url)
+                    except Exception:
+                        pass
                     self._sleep(1.0)
 
             # Summary
