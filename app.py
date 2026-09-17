@@ -1,6 +1,8 @@
 import os
 import sys
 import csv
+import io
+import re
 import time
 import queue
 import threading
@@ -35,6 +37,7 @@ from selenium.common.exceptions import (
     ElementClickInterceptedException,
     StaleElementReferenceException,
     ElementNotInteractableException,
+    UnexpectedAlertPresentException,
 )
 
 
@@ -103,6 +106,7 @@ class AgilicoImporterApp:
         self.stop_requested = False
         self.log_queue = queue.Queue()
         self.driver = None
+        self.failed_contacts = []
 
         self._build_ui()
         self._start_log_consumer()
@@ -228,6 +232,7 @@ class AgilicoImporterApp:
             highlightthickness=1,
             padx=20,
             pady=14,
+            cursor="hand2",
         )
         dropzone.pack(fill=tk.X, pady=(0, 10))
 
@@ -238,6 +243,7 @@ class AgilicoImporterApp:
             font=("Segoe UI", 20),
             bg=self.COLOR_DROPZONE_BG,
             fg=self.COLOR_TEXT_DARK,
+            cursor="hand2",
         )
         dz_icon.pack(pady=(2, 2))
 
@@ -247,6 +253,7 @@ class AgilicoImporterApp:
             font=("Segoe UI", 11, "bold"),
             fg=self.COLOR_TEXT_DARK,
             bg=self.COLOR_DROPZONE_BG,
+            cursor="hand2",
         )
         dz_title.pack()
 
@@ -256,6 +263,7 @@ class AgilicoImporterApp:
             font=("Segoe UI", 8),
             fg=self.COLOR_TEXT_MUTED,
             bg=self.COLOR_DROPZONE_BG,
+            cursor="hand2",
         )
         dz_subtitle.pack(pady=(2, 8))
 
@@ -275,6 +283,12 @@ class AgilicoImporterApp:
             cursor="hand2",
         )
         self.browse_btn.pack(pady=(0, 4))
+
+        # Bind click anywhere in dropzone area
+        for w in (dropzone, dz_icon, dz_title, dz_subtitle):
+            w.bind("<Button-1>", lambda e: self._browse_csv())
+            w.bind("<Enter>", lambda e: dropzone.config(bg="#f1f5f9"))
+            w.bind("<Leave>", lambda e: dropzone.config(bg=self.COLOR_DROPZONE_BG))
 
         # Selected File Info & Progress Bar Box
         file_status_box = tk.Frame(
@@ -471,14 +485,50 @@ class AgilicoImporterApp:
         )
         card_log.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
 
+        c3_header = tk.Frame(card_log, bg=self.COLOR_CARD_BG)
+        c3_header.pack(fill=tk.X)
+
         c3_title = tk.Label(
-            card_log,
+            c3_header,
             text="Activity & Diagnostics",
             font=("Segoe UI", 11, "bold"),
             fg=self.COLOR_TEXT_DARK,
             bg=self.COLOR_CARD_BG,
         )
-        c3_title.pack(anchor="w")
+        c3_title.pack(side=tk.LEFT)
+
+        log_actions = tk.Frame(c3_header, bg=self.COLOR_CARD_BG)
+        log_actions.pack(side=tk.RIGHT)
+
+        tk.Button(
+            log_actions,
+            text="Copy Log",
+            command=self._copy_log,
+            font=("Segoe UI", 8),
+            bg="#ffffff",
+            fg=self.COLOR_TEXT_DARK,
+            activebackground="#e2e8f0",
+            relief=tk.SOLID,
+            bd=1,
+            padx=8,
+            pady=1,
+            cursor="hand2",
+        ).pack(side=tk.LEFT, padx=(0, 6))
+
+        tk.Button(
+            log_actions,
+            text="Clear",
+            command=self._clear_log,
+            font=("Segoe UI", 8),
+            bg="#ffffff",
+            fg=self.COLOR_TEXT_DARK,
+            activebackground="#e2e8f0",
+            relief=tk.SOLID,
+            bd=1,
+            padx=8,
+            pady=1,
+            cursor="hand2",
+        ).pack(side=tk.LEFT)
 
         c3_desc = tk.Label(
             card_log,
@@ -591,6 +641,50 @@ class AgilicoImporterApp:
 
         self.root.after(100, self._start_log_consumer)
 
+    def _copy_log(self):
+        """Copies all current text in the activity log to the system clipboard."""
+        try:
+            content = self.log_text.get("1.0", tk.END).strip()
+            if content:
+                self.root.clipboard_clear()
+                self.root.clipboard_append(content)
+                self.log("Activity log copied to clipboard.", level="SUCCESS")
+        except Exception as ex:
+            self.log(f"Could not copy log: {ex}", level="WARNING")
+
+    def _clear_log(self):
+        """Clears the activity log display."""
+        try:
+            self.log_text.config(state=tk.NORMAL)
+            self.log_text.delete("1.0", tk.END)
+            self.log_text.config(state=tk.DISABLED)
+            self.log("Activity log cleared.", level="MUTED")
+        except Exception:
+            pass
+
+    def _sleep(self, seconds: float) -> bool:
+        """Cancellable sleep that checks stop_requested every 50ms.
+        Returns True if slept the full requested duration; False if stop was requested.
+        """
+        end_time = time.time() + max(0.0, seconds)
+        while time.time() < end_time:
+            if self.stop_requested:
+                return False
+            time.sleep(min(0.05, max(0.0, end_time - time.time())))
+        return not self.stop_requested
+
+    def _dismiss_unexpected_alert(self):
+        """Safely dismisses or accepts any unexpected browser alert that would block automation."""
+        if not self.driver:
+            return
+        try:
+            alert = self.driver.switch_to.alert
+            txt = alert.text
+            alert.accept()
+            self.log(f"Dismissed portal dialog: '{txt}'", level="WARNING")
+        except Exception:
+            pass
+
     def _set_ui_state(self, is_running: bool):
         self.is_running = is_running
         if is_running:
@@ -641,59 +735,72 @@ class AgilicoImporterApp:
         thread.start()
 
     def _read_contacts_csv(self, csv_path: str):
-        """Reads CSV flexibly with multiple encoding fallbacks and header synonyms."""
+        """Reads CSV flexibly with RFC 4180 multiline support, encoding fallbacks, and comprehensive header synonyms."""
         contacts = []
-        encodings_to_try = ["utf-8-sig", "utf-8", "cp1252", "latin-1", "iso-8859-1"]
+        encodings_to_try = ["utf-8-sig", "utf-8", "utf-16", "utf-16-le", "utf-16-be", "cp1252", "latin-1", "iso-8859-1"]
         raw_text = None
 
         for enc in encodings_to_try:
             try:
                 with open(csv_path, mode="r", encoding=enc) as f:
-                    raw_text = f.read()
-                break
+                    content = f.read()
+                if content:
+                    # Reject bad UTF-16 misinterpretation
+                    if "\x00" in content:
+                        continue
+                    raw_text = content
+                    break
             except (UnicodeDecodeError, Exception):
                 continue
 
         if not raw_text:
-            self.log(f"Failed to read CSV file: Could not decode using supported encodings.", level="ERROR")
+            self.log("Failed to read CSV file: Could not decode using supported encodings.", level="ERROR")
             return contacts
 
         # Determine delimiter using csv.Sniffer or fallback to comma
-        lines = [l for l in raw_text.splitlines() if l.strip()]
-        if not lines:
-            return contacts
-
         try:
-            sample = "\n".join(lines[:10])
+            sample = raw_text[:4096]
             dialect = csv.Sniffer().sniff(sample, delimiters=",\t;|")
             delimiter = dialect.delimiter
         except Exception:
             delimiter = ","
 
-        reader = csv.DictReader(lines, delimiter=delimiter)
+        csv_file = io.StringIO(raw_text.strip())
+        reader = csv.DictReader(csv_file, delimiter=delimiter)
         if not reader.fieldnames:
             return contacts
 
         field_map = {}
         for col in reader.fieldnames:
-            normalized = col.strip().lower().replace("_", " ").replace("-", " ")
+            if not col:
+                continue
+            normalized = col.strip().lower().replace("_", " ").replace("-", " ").replace(".", "")
             if any(k in normalized for k in ["first", "forename", "given", "fname"]):
                 field_map["first_name"] = col
             elif any(k in normalized for k in ["last", "surname", "family", "lname"]):
                 field_map["last_name"] = col
-            elif any(k in normalized for k in ["display", "full name", "contact name"]):
+            elif any(k in normalized for k in ["display", "full name", "contact name", "contact"]):
                 field_map["display_name"] = col
-            elif any(k in normalized for k in ["speed", "dial", "ext", "extension"]):
+            elif any(k in normalized for k in ["speed", "dial", "ext", "extension", "short code"]):
                 field_map["speed_dial"] = col
             elif any(k in normalized for k in ["number", "phone", "mobile", "tel", "cell", "direct", "telephone"]):
                 field_map["number"] = col
 
+        def _clean_val(val):
+            if val is None:
+                return ""
+            s = str(val).strip().strip('"').strip("'")
+            # Remove trailing .0 from Excel numeric values (e.g. 101.0 -> 101)
+            if re.match(r"^\d+\.0$", s):
+                s = s[:-2]
+            return s
+
         for idx, row in enumerate(reader, start=1):
-            first_name = row.get(field_map.get("first_name", "First Name"), "").strip().strip('"')
-            last_name = row.get(field_map.get("last_name", "Last Name"), "").strip().strip('"')
-            display_name = row.get(field_map.get("display_name", "Display Name"), "").strip().strip('"')
-            speed_dial = row.get(field_map.get("speed_dial", "Speed Dial"), "").strip().strip('"')
-            phone_number = row.get(field_map.get("number", "Number"), "").strip().strip('"')
+            first_name = _clean_val(row.get(field_map.get("first_name", "First Name"), ""))
+            last_name = _clean_val(row.get(field_map.get("last_name", "Last Name"), ""))
+            display_name = _clean_val(row.get(field_map.get("display_name", "Display Name"), ""))
+            speed_dial = _clean_val(row.get(field_map.get("speed_dial", "Speed Dial"), ""))
+            phone_number = _clean_val(row.get(field_map.get("number", "Number"), ""))
 
             # Generate Display Name fallback if blank
             if not display_name:
@@ -703,6 +810,12 @@ class AgilicoImporterApp:
                     display_name = first_name
                 elif last_name:
                     display_name = last_name
+                elif phone_number:
+                    display_name = f"Contact {phone_number}"
+                elif speed_dial:
+                    display_name = f"Ext {speed_dial}"
+                else:
+                    display_name = f"Contact {idx}"
 
             # Enforce 5-character minimum requirement for Contact Name / Display Name
             if display_name and len(display_name) < 5:
@@ -856,14 +969,13 @@ class AgilicoImporterApp:
         return None
 
     def _populate_input(self, driver, element, value: str):
-        """Focuses, clears, and inputs text cleanly into an input element with event triggers."""
+        """Focuses, clears, and inputs text cleanly into an input element with native and jQuery event triggers."""
         if not element or value is None:
             return
         try:
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
-            time.sleep(0.1)
-            element.click()
             time.sleep(0.05)
+            element.click()
             element.clear()
             element.send_keys(Keys.CONTROL + "a")
             element.send_keys(Keys.BACKSPACE)
@@ -872,75 +984,22 @@ class AgilicoImporterApp:
             pass
 
         try:
-            # Ensure JavaScript events trigger so portal forms register the value
+            # Ensure JavaScript and jQuery events trigger so ASP.NET and portal forms register the value
             driver.execute_script(
-                "arguments[0].value = arguments[1];"
-                "arguments[0].dispatchEvent(new Event('input', { bubbles: true }));"
-                "arguments[0].dispatchEvent(new Event('change', { bubbles: true }));",
+                "var el = arguments[0]; var val = arguments[1];"
+                "if (window.$ && $(el).length) {"
+                "    $(el).val(val).trigger('input').trigger('change').trigger('blur');"
+                "} else {"
+                "    el.value = val;"
+                "    el.dispatchEvent(new Event('input', { bubbles: true }));"
+                "    el.dispatchEvent(new Event('change', { bubbles: true }));"
+                "    el.dispatchEvent(new Event('blur', { bubbles: true }));"
+                "}",
                 element,
                 value,
             )
         except Exception:
             pass
-
-    def _select_type_dropdown(self, driver, wait, target_text: str):
-        """Selects 'Mobile' or 'Work' from the Type dropdown in standard or custom forms."""
-        select_xpaths = [
-            "//label[contains(translate(text(), 'TYPE', 'type'), 'type')]/following::select[1]",
-            "//select[contains(translate(@name, 'TYPE', 'type'), 'type') or contains(translate(@id, 'TYPE', 'type'), 'type')]",
-            "//select",
-        ]
-        for xpath in select_xpaths:
-            try:
-                select_elements = driver.find_elements(By.XPATH, xpath)
-                for s_elem in select_elements:
-                    if s_elem.is_displayed() and s_elem.is_enabled():
-                        select_obj = Select(s_elem)
-                        for option in select_obj.options:
-                            if target_text.lower() in option.text.strip().lower():
-                                select_obj.select_by_visible_text(option.text)
-                                return True
-            except Exception:
-                continue
-
-        # Custom Dropdown / ExtJS ComboBox / Clickable trigger
-        custom_dropdown_xpaths = [
-            "//label[contains(translate(text(), 'TYPE', 'type'), 'type')]/following::input[1]",
-            "//label[contains(translate(text(), 'TYPE', 'type'), 'type')]/following::*[contains(@class, 'x-form-trigger') or contains(@class, 'x-form-arrow-trigger')][1]",
-            "//div[contains(@class, 'x-form-item') and contains(translate(., 'TYPE', 'type'), 'type')]//input",
-            "//div[contains(@class, 'x-form-item') and contains(translate(., 'TYPE', 'type'), 'type')]//*[contains(@class, 'x-form-trigger')]",
-            "//input[contains(translate(@name, 'TYPE', 'type'), 'type') or contains(translate(@id, 'TYPE', 'type'), 'type')]",
-        ]
-        for xpath in custom_dropdown_xpaths:
-            try:
-                triggers = driver.find_elements(By.XPATH, xpath)
-                for trig in triggers:
-                    if trig.is_displayed() and trig.is_enabled():
-                        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", trig)
-                        trig.click()
-                        time.sleep(0.3)
-
-                        option_xpaths = [
-                            f"//li[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text.lower()}')]",
-                            f"//div[contains(@class, 'x-combo-list-item') and contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text.lower()}')]",
-                            f"//div[contains(@class, 'x-boundlist-item') and contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text.lower()}')]",
-                            f"//*[contains(@class, 'dropdown-item') and contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text.lower()}')]",
-                            f"//option[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{target_text.lower()}')]",
-                            f"//*[text()='{target_text}' or text()='{target_text.title()}']",
-                        ]
-                        for opt_xpath in option_xpaths:
-                            try:
-                                opt_elems = driver.find_elements(By.XPATH, opt_xpath)
-                                for o_elem in opt_elems:
-                                    if o_elem.is_displayed():
-                                        o_elem.click()
-                                        return True
-                            except Exception:
-                                continue
-            except Exception:
-                continue
-
-        return False
 
     def _is_back_or_nav_element(self, el) -> bool:
         """Checks if an element is a Back, Cancel, or return-to-list navigation button."""
@@ -1008,12 +1067,13 @@ class AgilicoImporterApp:
         return None
 
     def _select_type_dropdown(self, driver, wait, target_type: str):
-        """Selects Work (value=2) or Mobile (value=3) from <select id='ContactNumberTypeID' name='ContactNumberTypeID'>"""
+        """Selects Work (value=2) or Mobile (value=3) from <select id='ContactNumberTypeID' name='ContactNumberTypeID'> or custom dropdowns."""
         target_value = "3" if target_type.lower() == "mobile" else "2"
         select_xpaths = [
             "//select[@id='ContactNumberTypeID' or @name='ContactNumberTypeID']",
             "//select[contains(@name, 'ContactNumberTypeID') or contains(@id, 'ContactNumberTypeID')]",
             "//div[contains(@class, 'modal') or contains(@class, 'x-window') or contains(@class, 'x-overlay') or contains(@id, 'overlay')]//select",
+            "//label[contains(translate(text(), 'TYPE', 'type'), 'type')]/following::select[1]",
             "//select",
         ]
         for xpath in select_xpaths:
@@ -1028,7 +1088,7 @@ class AgilicoImporterApp:
                             return True
                         except Exception:
                             pass
-                        # Fallback to visible text
+                        # Fallback to visible text match
                         for option in select_obj.options:
                             if target_type.lower() in option.text.strip().lower():
                                 select_obj.select_by_visible_text(option.text)
@@ -1040,6 +1100,7 @@ class AgilicoImporterApp:
         custom_dropdown_xpaths = [
             "//*[@id='ContactNumberTypeID']//following::*[contains(@class, 'x-form-trigger')][1]",
             "//div[contains(@class, 'modal') or contains(@class, 'x-window') or contains(@class, 'x-overlay')]//*[contains(@class, 'x-form-trigger')]",
+            "//label[contains(translate(text(), 'TYPE', 'type'), 'type')]/following::*[contains(@class, 'x-form-trigger') or contains(@class, 'x-form-arrow-trigger')][1]",
         ]
         for xpath in custom_dropdown_xpaths:
             try:
@@ -1047,7 +1108,7 @@ class AgilicoImporterApp:
                 for trig in triggers:
                     if trig.is_displayed() and trig.is_enabled():
                         self._safe_click(driver, trig)
-                        time.sleep(1.0)
+                        time.sleep(0.3)
                         opt_elems = driver.find_elements(By.XPATH, f"//*[text()='{target_type}' or text()='{target_type.title()}']")
                         for o_elem in opt_elems:
                             if o_elem.is_displayed():
@@ -1059,8 +1120,9 @@ class AgilicoImporterApp:
         return False
 
     def _find_save_button(self):
-        """Locates <button type="submit" class="btn btn-primary x-save"><i class="fa fa-save"></i></button>"""
+        """Locates <button type="submit" class="btn btn-primary x-save"><i class="fa fa-save"></i></button> on the main contact form."""
         save_selectors = [
+            "//form[not(contains(@action, 'ContactNumber'))]//button[@type='submit' and contains(@class, 'x-save') and contains(@class, 'btn-primary')]",
             "//button[@type='submit' and contains(@class, 'x-save') and contains(@class, 'btn-primary')]",
             "//button[@type='submit' and contains(@class, 'x-save')]",
             "//button[contains(@class, 'btn-primary') and contains(@class, 'x-save')]",
@@ -1080,35 +1142,37 @@ class AgilicoImporterApp:
                 continue
         return None
 
-    def _prefill_login_customer(self, customer_name: str):
-        """Pre-fills the Target Customer into the username/customer field on the portal sign-in page."""
-        if not customer_name:
-            return
-        time.sleep(1.0)
-        login_input_xpaths = [
-            "//input[@id='Username' or @name='Username']",
-            "//input[@id='UserName' or @name='UserName']",
-            "//input[@id='Customer' or @name='Customer']",
-            "//input[@id='Tenant' or @name='Tenant']",
-            "//input[@id='Account' or @name='Account']",
-            "//input[contains(@placeholder, 'Username') or contains(@placeholder, 'Customer') or contains(@placeholder, 'Account')]",
-            "//form//input[@type='text'][1]",
-            "//input[@type='text'][1]",
+    def _find_modal_save_button(self):
+        """Specifically locates the Save button inside the active phone number modal overlay."""
+        modal_save_selectors = [
+            "//div[contains(@class, 'modal') or contains(@class, 'x-window') or contains(@class, 'x-overlay')]//button[@type='submit' and contains(@class, 'x-save')]",
+            "//div[contains(@class, 'modal') or contains(@class, 'x-window') or contains(@class, 'x-overlay')]//button[contains(@class, 'btn-primary') and contains(@class, 'x-save')]",
+            "//div[contains(@class, 'modal') or contains(@class, 'x-window') or contains(@class, 'x-overlay')]//button[contains(@class, 'x-save')]",
+            "//form[contains(@action, 'ContactNumber')]//button[contains(@class, 'x-save')]",
+            "//form[contains(@action, 'ContactNumber')]//button[@type='submit']",
         ]
-        for xpath in login_input_xpaths:
+        for xpath in modal_save_selectors:
             try:
-                elems = self.driver.find_elements(By.XPATH, xpath)
-                for el in elems:
+                elements = self.driver.find_elements(By.XPATH, xpath)
+                for el in elements:
                     if el.is_displayed() and el.is_enabled():
-                        el.click()
-                        el.clear()
-                        el.send_keys(customer_name)
-                        self.log(f"Pre-filled Target Customer '{customer_name}' into login username field.", level="SUCCESS")
-                        time.sleep(1.0)
-                        return True
+                        if not self._is_back_or_nav_element(el):
+                            return el
             except Exception:
                 continue
-        return False
+        return self._find_save_button()
+
+    def _wait_for_modal_backdrop_gone(self, timeout: float = 6.0):
+        """Waits until any modal overlay backdrop or mask has completely disappeared from view."""
+        try:
+            WebDriverWait(self.driver, timeout).until(
+                EC.invisibility_of_element_located((
+                    By.XPATH,
+                    "//div[contains(@class, 'modal-backdrop') or contains(@class, 'x-mask') or contains(@class, 'blockUI')]"
+                ))
+            )
+        except Exception:
+            pass
 
     def _show_login_dialog_sync(self, customer_name: str, browser_name: str):
         """Displays a modal dialog asking the user to log in and proceed."""
@@ -1274,6 +1338,7 @@ class AgilicoImporterApp:
                 except Exception as ex:
                     self.log(f"Tenant switch warning: {str(ex)}. Continuing...", level="WARNING")
 
+            self.failed_contacts = []
             self.log("Starting contact import process (1-second action delay active)...", level="SUCCESS")
 
             success_count = 0
@@ -1297,6 +1362,8 @@ class AgilicoImporterApp:
                 )
 
                 try:
+                    self._dismiss_unexpected_alert()
+
                     # 5.0 Ensure we are on the main Contacts list view before clicking Add Contact
                     current_url = self.driver.current_url
                     if not current_url.rstrip("/").lower().endswith("/contacts"):
@@ -1379,7 +1446,8 @@ class AgilicoImporterApp:
                     if sd_elem and contact["speed_dial"]:
                         self._populate_input(self.driver, sd_elem, contact["speed_dial"])
 
-                    time.sleep(1.0)
+                    if not self._sleep(1.0):
+                        break
 
                     # 5d. Click initial save button: <button type="submit" class="btn btn-primary x-save"><i class="fa fa-save"></i></button>
                     save_btn = self._find_save_button()
@@ -1389,12 +1457,14 @@ class AgilicoImporterApp:
                     self.log(f"Saving contact details for {contact['display_name']} (<button class='btn btn-primary x-save'>)...", level="INFO")
                     self._safe_click(self.driver, save_btn)
                     self._wait_for_page_ready(self.driver, timeout=15.0)
-                    time.sleep(1.0)
+
+                    if not self._sleep(1.0):
+                        break
 
                     # 5e. If contact has a number, open <a href="/ContactNumbers/Add?ContactId=###" class="btn btn-default x-overlay"><i class="fa fa-plus"></i> Add</a>
                     phone_number = contact.get("number", "").strip()
                     if phone_number:
-                        self.log(f"Locating Add Number link (<a href='/ContactNumbers/Add...' class='btn btn-default x-overlay'>)...", level="INFO")
+                        self.log("Locating Add Number link (<a href='/ContactNumbers/Add...' class='btn btn-default x-overlay'>)...", level="INFO")
                         add_num_btn = self._find_add_number_button(wait)
 
                         if not add_num_btn:
@@ -1405,7 +1475,13 @@ class AgilicoImporterApp:
                             self._wait_for_page_ready(self.driver, timeout=10.0)
 
                             # Locate Number field: <input id="Number" name="Number" ...>
-                            num_elem = self._find_modal_number_input(wait)
+                            num_elem = None
+                            try:
+                                num_elem = WebDriverWait(self.driver, 8).until(
+                                    lambda d: self._find_modal_number_input(wait)
+                                )
+                            except TimeoutException:
+                                num_elem = self._find_modal_number_input(wait)
 
                             if num_elem:
                                 self._populate_input(self.driver, num_elem, phone_number)
@@ -1413,11 +1489,12 @@ class AgilicoImporterApp:
                             else:
                                 self.log("Could not locate '<input id=\"Number\" name=\"Number\">' field.", level="WARNING")
 
-                            time.sleep(1.0)
+                            if not self._sleep(1.0):
+                                break
 
                             # Determine Type: 07XXXXXXXXX -> Mobile, non-07 -> Work
-                            clean_num = phone_number.replace(" ", "").replace("-", "").replace("(", "").replace(")", "").strip()
-                            if clean_num.startswith("07") or clean_num.startswith("+447") or clean_num.startswith("447"):
+                            clean_num = re.sub(r"[^\d+]", "", phone_number)
+                            if clean_num.startswith(("07", "+447", "447", "00447")):
                                 target_type = "Mobile"
                             else:
                                 target_type = "Work"
@@ -1427,20 +1504,23 @@ class AgilicoImporterApp:
                             if not selected:
                                 self.log(f"Could not automatically select dropdown '{target_type}'.", level="WARNING")
 
-                            time.sleep(1.0)
+                            if not self._sleep(1.0):
+                                break
 
-                            # Click Save on Number form: <button type="submit" class="btn btn-primary x-save"><i class="fa fa-save"></i></button>
-                            num_save_btn = self._find_save_button()
+                            # Click Save on Number modal: scoped to modal overlay
+                            num_save_btn = self._find_modal_save_button()
 
                             if num_save_btn:
-                                self.log(f"Saving telephone number ({target_type}: {phone_number}) via <button class='btn btn-primary x-save'>...", level="INFO")
+                                self.log(f"Saving telephone number ({target_type}: {phone_number}) via modal save...", level="INFO")
                                 self._safe_click(self.driver, num_save_btn)
+                                self._wait_for_modal_backdrop_gone(timeout=6.0)
                                 self._wait_for_page_ready(self.driver, timeout=10.0)
                                 self.log(f"Successfully saved telephone number ({target_type}: {phone_number})", level="SUCCESS")
                             else:
-                                self.log("Could not locate 'Save' button (<button class='btn btn-primary x-save'>) for number form.", level="WARNING")
+                                self.log("Could not locate 'Save' button for number modal.", level="WARNING")
 
-                            time.sleep(1.0)
+                            if not self._sleep(1.0):
+                                break
 
                             # Press Save again once the screen updates back to the contact form to commit final changes
                             self.log("Screen updated. Finalizing contact details by pressing Save again...", level="INFO")
@@ -1452,23 +1532,37 @@ class AgilicoImporterApp:
 
                     success_count += 1
                     self.log(f"Successfully completed contact {idx}/{len(contacts)}: {contact['display_name']}", level="SUCCESS")
-                    time.sleep(1.0)
+                    if not self._sleep(1.0):
+                        break
 
                 except Exception as ex:
                     fail_count += 1
-                    self.log(f"Error processing row {contact['row_num']} ({contact['display_name']}): {str(ex)}", level="ERROR")
-                    time.sleep(1.0)
+                    err_msg = str(ex).splitlines()[0] if str(ex) else "Unknown error"
+                    self.failed_contacts.append((contact.get("row_num", idx), contact.get("display_name", "Unknown"), err_msg))
+                    self.log(f"Error processing row {contact['row_num']} ({contact['display_name']}): {err_msg}", level="ERROR")
+                    self._sleep(1.0)
 
             # Summary
             self.progress_val_var.set(100)
             self.status_detail_var.set(f"Completed! {success_count} succeeded, {fail_count} failed out of {len(contacts)} total.")
             self.log("=" * 45, level="MUTED")
             self.log(f"Import Complete! Success: {success_count}, Failures: {fail_count}, Total: {len(contacts)}", level="SUCCESS" if fail_count == 0 else "WARNING")
-            messagebox.showinfo(
-                "Import Complete",
-                f"Import Finished!\n\nSuccessfully Imported: {success_count}\nFailed: {fail_count}\nTotal: {len(contacts)}",
-                parent=self.root,
-            )
+
+            if self.failed_contacts:
+                fail_details = "\n".join([f"• Row {r}: {name} ({err})" for r, name, err in self.failed_contacts[:8]])
+                if len(self.failed_contacts) > 8:
+                    fail_details += f"\n... and {len(self.failed_contacts) - 8} additional errors."
+                messagebox.showwarning(
+                    "Import Complete with Errors",
+                    f"Import Finished with {fail_count} issue(s)!\n\nSuccessfully Imported: {success_count}\nFailed: {fail_count}\nTotal: {len(contacts)}\n\nFailed Records:\n{fail_details}",
+                    parent=self.root,
+                )
+            else:
+                messagebox.showinfo(
+                    "Import Complete",
+                    f"Import Finished Successfully!\n\nSuccessfully Imported: {success_count}\nTotal: {len(contacts)}",
+                    parent=self.root,
+                )
 
         except WebDriverException as wde:
             self.log(f"WebDriver Exception: {str(wde)}", level="ERROR")
