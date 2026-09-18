@@ -252,7 +252,7 @@ class AgilicoImporterApp:
             highlightbackground=self.COLOR_DROPZONE_BORDER,
             highlightthickness=1,
             padx=16,
-            pady=8,
+            pady=10,
             cursor="hand2",
         )
         dropzone.pack(fill=tk.X, pady=(0, 8))
@@ -260,13 +260,13 @@ class AgilicoImporterApp:
         # Icon inside dropzone
         dz_icon = tk.Label(
             dropzone,
-            text="📄",
-            font=("Segoe UI", 18),
+            text="📁",
+            font=("Segoe UI", 20),
             bg=self.COLOR_DROPZONE_BG,
             fg=self.COLOR_TEXT_DARK,
             cursor="hand2",
         )
-        dz_icon.pack(pady=(1, 1))
+        dz_icon.pack(pady=(0, 1))
 
         dz_title = tk.Label(
             dropzone,
@@ -281,7 +281,7 @@ class AgilicoImporterApp:
         dz_subtitle = tk.Label(
             dropzone,
             text="Supports First Name, Last Name, Display Name & Number (Speed Dial auto-generated)",
-            font=("Segoe UI", 8),
+            font=("Segoe UI", 8.5),
             fg=self.COLOR_TEXT_MUTED,
             bg=self.COLOR_DROPZONE_BG,
             cursor="hand2",
@@ -291,15 +291,15 @@ class AgilicoImporterApp:
         # BROWSE FILES Button (Modern flat emerald button)
         self.browse_btn = tk.Button(
             dropzone,
-            text="BROWSE CSV FILE",
+            text="📂  BROWSE CSV FILE",
             command=self._browse_csv,
             bg=self.COLOR_GREEN,
             fg="#ffffff",
             activebackground=self.COLOR_GREEN_HOVER,
             activeforeground="#ffffff",
             font=("Segoe UI", 9, "bold"),
-            padx=24,
-            pady=6,
+            padx=22,
+            pady=7,
             relief=tk.FLAT,
             bd=0,
             cursor="hand2",
@@ -318,7 +318,7 @@ class AgilicoImporterApp:
             bg="#f8fafc",
             highlightbackground=self.COLOR_BORDER,
             highlightthickness=1,
-            padx=12,
+            padx=14,
             pady=8,
         )
         file_status_box.pack(fill=tk.X)
@@ -338,17 +338,17 @@ class AgilicoImporterApp:
 
         self.preview_btn = tk.Button(
             file_header_row,
-            text="👁 Preview Contacts",
+            text="👁  Preview Contacts",
             command=self._open_csv_preview_modal,
-            font=("Segoe UI", 8, "bold"),
-            bg="#f1f5f9",
+            font=("Segoe UI", 8.5, "bold"),
+            bg="#e0f2fe",
             fg="#0284c7",
-            activebackground="#e0f2fe",
+            activebackground="#bae6fd",
             activeforeground="#0369a1",
             relief=tk.FLAT,
             bd=0,
-            padx=10,
-            pady=3,
+            padx=12,
+            pady=4,
             cursor="hand2",
             state=tk.DISABLED,
         )
@@ -361,12 +361,12 @@ class AgilicoImporterApp:
             variable=self.progress_val_var,
             maximum=100,
         )
-        self.progressbar.pack(fill=tk.X, pady=(4, 3))
+        self.progressbar.pack(fill=tk.X, pady=(5, 3))
 
         self.status_detail_label = tk.Label(
             file_status_box,
             textvariable=self.status_detail_var,
-            font=("Segoe UI", 8),
+            font=("Segoe UI", 8.5),
             fg=self.COLOR_TEXT_MUTED,
             bg="#f8fafc",
             anchor="w",
@@ -405,7 +405,7 @@ class AgilicoImporterApp:
         c2_desc = tk.Label(
             card_config,
             text="Direct customer credentials with automated multi-tenant lockout.",
-            font=("Segoe UI", 8),
+            font=("Segoe UI", 8.5),
             fg=self.COLOR_TEXT_MUTED,
             bg=self.COLOR_CARD_BG,
         )
@@ -418,9 +418,9 @@ class AgilicoImporterApp:
         # Base URL
         tk.Label(
             fields_frame,
-            text="Portal Base URL:",
-            font=("Segoe UI", 8, "bold"),
-            fg=self.COLOR_TEXT_DARK,
+            text="🌐  Portal Base URL:",
+            font=("Segoe UI", 8.5, "bold"),
+            fg="#334155",
             bg=self.COLOR_CARD_BG,
         ).pack(anchor="w", pady=(0, 2))
 
@@ -430,14 +430,14 @@ class AgilicoImporterApp:
             highlightbackground="#cbd5e1",
             highlightthickness=1,
             padx=10,
-            pady=4,
+            pady=5,
         )
         url_wrap.pack(fill=tk.X, pady=(0, 6))
 
         self.url_entry = tk.Entry(
             url_wrap,
             textvariable=self.url_var,
-            font=("Segoe UI", 9),
+            font=("Segoe UI", 9.5),
             bg="#ffffff",
             fg=self.COLOR_TEXT_DARK,
             bd=0,
@@ -446,15 +446,15 @@ class AgilicoImporterApp:
             insertbackground=self.COLOR_TEXT_DARK,
         )
         self.url_entry.pack(fill=tk.X)
-        self.url_entry.bind("<FocusIn>", lambda e: url_wrap.config(highlightbackground="#00b862"))
-        self.url_entry.bind("<FocusOut>", lambda e: url_wrap.config(highlightbackground="#cbd5e1"))
+        self.url_entry.bind("<FocusIn>", lambda e: url_wrap.config(highlightbackground="#00b862", highlightthickness=2))
+        self.url_entry.bind("<FocusOut>", lambda e: url_wrap.config(highlightbackground="#cbd5e1", highlightthickness=1))
 
         # Customer Username
         tk.Label(
             fields_frame,
-            text="Customer Portal Username:",
-            font=("Segoe UI", 8, "bold"),
-            fg=self.COLOR_TEXT_DARK,
+            text="👤  Customer Portal Username:",
+            font=("Segoe UI", 8.5, "bold"),
+            fg="#334155",
             bg=self.COLOR_CARD_BG,
         ).pack(anchor="w", pady=(0, 2))
 
@@ -464,14 +464,14 @@ class AgilicoImporterApp:
             highlightbackground="#cbd5e1",
             highlightthickness=1,
             padx=10,
-            pady=4,
+            pady=5,
         )
         user_wrap.pack(fill=tk.X, pady=(0, 6))
 
         self.username_entry = tk.Entry(
             user_wrap,
             textvariable=self.username_var,
-            font=("Segoe UI", 9),
+            font=("Segoe UI", 9.5),
             bg="#ffffff",
             fg=self.COLOR_TEXT_DARK,
             bd=0,
@@ -480,15 +480,15 @@ class AgilicoImporterApp:
             insertbackground=self.COLOR_TEXT_DARK,
         )
         self.username_entry.pack(fill=tk.X)
-        self.username_entry.bind("<FocusIn>", lambda e: user_wrap.config(highlightbackground="#00b862"))
-        self.username_entry.bind("<FocusOut>", lambda e: user_wrap.config(highlightbackground="#cbd5e1"))
+        self.username_entry.bind("<FocusIn>", lambda e: user_wrap.config(highlightbackground="#00b862", highlightthickness=2))
+        self.username_entry.bind("<FocusOut>", lambda e: user_wrap.config(highlightbackground="#cbd5e1", highlightthickness=1))
 
         # Customer Password with Show/Hide toggle
         tk.Label(
             fields_frame,
-            text="Customer Portal Password:",
-            font=("Segoe UI", 8, "bold"),
-            fg=self.COLOR_TEXT_DARK,
+            text="🔒  Customer Portal Password:",
+            font=("Segoe UI", 8.5, "bold"),
+            fg="#334155",
             bg=self.COLOR_CARD_BG,
         ).pack(anchor="w", pady=(0, 2))
 
@@ -498,7 +498,7 @@ class AgilicoImporterApp:
             highlightbackground="#cbd5e1",
             highlightthickness=1,
             padx=10,
-            pady=3,
+            pady=4,
         )
         pwd_wrap.pack(fill=tk.X, pady=(0, 6))
 
@@ -506,7 +506,7 @@ class AgilicoImporterApp:
             pwd_wrap,
             textvariable=self.password_var,
             show="•",
-            font=("Segoe UI", 9),
+            font=("Segoe UI", 9.5),
             bg="#ffffff",
             fg=self.COLOR_TEXT_DARK,
             bd=0,
@@ -518,32 +518,32 @@ class AgilicoImporterApp:
 
         self.toggle_pwd_btn = tk.Button(
             pwd_wrap,
-            text="👁",
+            text="👁 Show",
             command=self._toggle_password_visibility,
-            font=("Segoe UI", 8),
-            bg="#ffffff",
-            fg=self.COLOR_TEXT_MUTED,
-            activebackground="#f1f5f9",
+            font=("Segoe UI", 8, "bold"),
+            bg="#f1f5f9",
+            fg="#475569",
+            activebackground="#e2e8f0",
             activeforeground=self.COLOR_TEXT_DARK,
             relief=tk.FLAT,
             bd=0,
-            padx=4,
-            pady=0,
+            padx=6,
+            pady=2,
             cursor="hand2",
         )
         self.toggle_pwd_btn.pack(side=tk.RIGHT)
 
-        self.password_entry.bind("<FocusIn>", lambda e: pwd_wrap.config(highlightbackground="#00b862"))
-        self.password_entry.bind("<FocusOut>", lambda e: pwd_wrap.config(highlightbackground="#cbd5e1"))
+        self.password_entry.bind("<FocusIn>", lambda e: pwd_wrap.config(highlightbackground="#00b862", highlightthickness=2))
+        self.password_entry.bind("<FocusOut>", lambda e: pwd_wrap.config(highlightbackground="#cbd5e1", highlightthickness=1))
 
         # Remember Username checkbox
         self.remember_cb = tk.Checkbutton(
             fields_frame,
             text="Remember Username",
             variable=self.remember_username_var,
-            font=("Segoe UI", 8),
+            font=("Segoe UI", 8.5),
             bg=self.COLOR_CARD_BG,
-            fg=self.COLOR_TEXT_DARK,
+            fg="#334155",
             activebackground=self.COLOR_CARD_BG,
             highlightthickness=0,
             bd=0,
@@ -554,9 +554,9 @@ class AgilicoImporterApp:
         # Web Browser
         tk.Label(
             fields_frame,
-            text="Web Browser:",
-            font=("Segoe UI", 8, "bold"),
-            fg=self.COLOR_TEXT_DARK,
+            text="🌐  Web Browser Engine:",
+            font=("Segoe UI", 8.5, "bold"),
+            fg="#334155",
             bg=self.COLOR_CARD_BG,
         ).pack(anchor="w", pady=(0, 2))
 
@@ -572,63 +572,69 @@ class AgilicoImporterApp:
             state="readonly",
             font=("Segoe UI", 9),
         )
-        self.browser_combo.pack(fill=tk.X, ipady=3, pady=(0, 8))
+        self.browser_combo.pack(fill=tk.X, ipady=3, pady=(0, 6))
 
-        # Actions Row (Start / Test Login / Stop)
-        actions_btn_frame = tk.Frame(card_config, bg=self.COLOR_CARD_BG)
-        actions_btn_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=(8, 0))
+        # ---------------------------------------------------------------------
+        # Actions Area (2-Tier Modern Action Hierarchy)
+        # ---------------------------------------------------------------------
+        actions_frame = tk.Frame(card_config, bg=self.COLOR_CARD_BG)
+        actions_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=(10, 0))
 
+        # Row 1: Hero Primary Action (START IMPORT)
         self.start_btn = tk.Button(
-            actions_btn_frame,
-            text="START IMPORT",
+            actions_frame,
+            text="▶  START IMPORT",
             command=self._start_import_thread,
             bg=self.COLOR_GREEN,
             fg="#ffffff",
             activebackground=self.COLOR_GREEN_HOVER,
             activeforeground="#ffffff",
-            font=("Segoe UI", 9, "bold"),
-            padx=16,
-            pady=8,
+            font=("Segoe UI", 10, "bold"),
+            pady=9,
             relief=tk.FLAT,
             bd=0,
             cursor="hand2",
         )
-        self.start_btn.pack(side=tk.LEFT)
+        self.start_btn.pack(fill=tk.X, pady=(0, 6))
+
+        # Row 2: Secondary Actions (TEST LOGIN + STOP)
+        sec_btn_frame = tk.Frame(actions_frame, bg=self.COLOR_CARD_BG)
+        sec_btn_frame.pack(fill=tk.X)
+        sec_btn_frame.columnconfigure(0, weight=1)
+        sec_btn_frame.columnconfigure(1, weight=1)
 
         self.test_login_btn = tk.Button(
-            actions_btn_frame,
-            text="TEST LOGIN",
+            sec_btn_frame,
+            text="🔍  TEST LOGIN",
             command=self._start_test_login_thread,
-            bg=self.COLOR_SIDEBAR_BG,
+            bg="#1e293b",
             fg="#ffffff",
-            activebackground=self.COLOR_SIDEBAR_HOVER,
+            activebackground="#334155",
             activeforeground="#ffffff",
-            font=("Segoe UI", 9, "bold"),
-            padx=14,
-            pady=8,
+            font=("Segoe UI", 8.5, "bold"),
+            pady=7,
             relief=tk.FLAT,
             bd=0,
             cursor="hand2",
         )
-        self.test_login_btn.pack(side=tk.LEFT, padx=(8, 0))
+        self.test_login_btn.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
 
         self.stop_btn = tk.Button(
-            actions_btn_frame,
-            text="STOP",
+            sec_btn_frame,
+            text="⏹  STOP",
             command=self._stop_import,
             state=tk.DISABLED,
-            bg="#fca5a5",
-            fg="#ffffff",
+            bg="#f1f5f9",
+            fg="#94a3b8",
             activebackground=self.COLOR_RED_HOVER,
             activeforeground="#ffffff",
-            font=("Segoe UI", 9, "bold"),
-            padx=14,
-            pady=8,
+            font=("Segoe UI", 8.5, "bold"),
+            pady=7,
             relief=tk.FLAT,
             bd=0,
-            cursor="hand2",
+            cursor="arrow",
         )
-        self.stop_btn.pack(side=tk.LEFT, padx=(8, 0))
+        self.stop_btn.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
 
         # CARD 3 (RIGHT): Live Activity Log Card
         card_log = tk.Frame(
@@ -658,7 +664,7 @@ class AgilicoImporterApp:
 
         tk.Button(
             log_actions,
-            text="Export",
+            text="💾 Export Log",
             command=self._export_log,
             font=("Segoe UI", 8, "bold"),
             bg="#f1f5f9",
@@ -674,7 +680,7 @@ class AgilicoImporterApp:
 
         tk.Button(
             log_actions,
-            text="Copy",
+            text="📋 Copy",
             command=self._copy_log,
             font=("Segoe UI", 8, "bold"),
             bg="#f1f5f9",
@@ -690,7 +696,7 @@ class AgilicoImporterApp:
 
         tk.Button(
             log_actions,
-            text="Clear",
+            text="🗑 Clear",
             command=self._clear_log,
             font=("Segoe UI", 8, "bold"),
             bg="#f1f5f9",
@@ -707,23 +713,32 @@ class AgilicoImporterApp:
         c3_desc = tk.Label(
             card_log,
             text="Real-time validation & automation pipeline.",
-            font=("Segoe UI", 8),
+            font=("Segoe UI", 8.5),
             fg=self.COLOR_TEXT_MUTED,
             bg=self.COLOR_CARD_BG,
         )
         c3_desc.pack(anchor="w", pady=(2, 8))
 
         # Console Text View
-        self.log_text = scrolledtext.ScrolledText(
+        log_container = tk.Frame(
             card_log,
+            bg=self.COLOR_LOG_BG,
+            highlightbackground="#1e293b",
+            highlightthickness=1,
+        )
+        log_container.pack(fill=tk.BOTH, expand=True)
+
+        self.log_text = scrolledtext.ScrolledText(
+            log_container,
             wrap=tk.WORD,
-            font=("Consolas", 9),
+            font=("Consolas", 9.5),
             bg=self.COLOR_LOG_BG,
             fg="#ffffff",
             insertbackground="#ffffff",
             relief=tk.FLAT,
-            padx=8,
-            pady=8,
+            bd=0,
+            padx=10,
+            pady=10,
         )
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
@@ -733,7 +748,7 @@ class AgilicoImporterApp:
         self.log_text.tag_config("SUCCESS", foreground="#4ade80")
         self.log_text.tag_config("WARNING", foreground="#fde047")
         self.log_text.tag_config("ERROR", foreground="#f87171")
-        self.log_text.tag_config("MUTED", foreground="#ffffff")
+        self.log_text.tag_config("MUTED", foreground="#cbd5e1")
 
         self.log("Ready. Select contacts.csv, enter customer credentials, and click 'START IMPORT'.", level="INFO")
 
@@ -825,11 +840,11 @@ class AgilicoImporterApp:
         if self.show_password_var.get():
             self.password_entry.config(show="•")
             self.show_password_var.set(False)
-            self.toggle_pwd_btn.config(text="👁")
+            self.toggle_pwd_btn.config(text="👁 Show")
         else:
             self.password_entry.config(show="")
             self.show_password_var.set(True)
-            self.toggle_pwd_btn.config(text="🙈")
+            self.toggle_pwd_btn.config(text="🔒 Hide")
 
     def _browse_csv(self):
         filename = filedialog.askopenfilename(
@@ -1114,10 +1129,10 @@ class AgilicoImporterApp:
     def _set_ui_state(self, is_running: bool):
         self.is_running = is_running
         if is_running:
-            self.start_btn.config(state=tk.DISABLED, bg="#94d3a2", cursor="arrow")
-            self.test_login_btn.config(state=tk.DISABLED, bg="#93c5fd", cursor="arrow")
-            self.stop_btn.config(state=tk.NORMAL, bg=self.COLOR_RED, cursor="hand2")
-            self.browse_btn.config(state=tk.DISABLED, bg="#94d3a2")
+            self.start_btn.config(state=tk.DISABLED, bg="#cbd5e1", fg="#94a3b8", cursor="arrow")
+            self.test_login_btn.config(state=tk.DISABLED, bg="#cbd5e1", fg="#94a3b8", cursor="arrow")
+            self.stop_btn.config(state=tk.NORMAL, bg=self.COLOR_RED, fg="#ffffff", cursor="hand2")
+            self.browse_btn.config(state=tk.DISABLED, bg="#cbd5e1", fg="#94a3b8", cursor="arrow")
             self.preview_btn.config(state=tk.DISABLED)
             self.url_entry.config(state=tk.DISABLED)
             self.username_entry.config(state=tk.DISABLED)
@@ -1126,10 +1141,10 @@ class AgilicoImporterApp:
             self.remember_cb.config(state=tk.DISABLED)
             self.browser_combo.config(state=tk.DISABLED)
         else:
-            self.start_btn.config(state=tk.NORMAL, bg=self.COLOR_GREEN, cursor="hand2")
-            self.test_login_btn.config(state=tk.NORMAL, bg=self.COLOR_BLUE, cursor="hand2")
-            self.stop_btn.config(state=tk.DISABLED, bg="#fca5a5", cursor="arrow")
-            self.browse_btn.config(state=tk.NORMAL, bg=self.COLOR_GREEN)
+            self.start_btn.config(state=tk.NORMAL, bg=self.COLOR_GREEN, fg="#ffffff", cursor="hand2")
+            self.test_login_btn.config(state=tk.NORMAL, bg="#1e293b", fg="#ffffff", cursor="hand2")
+            self.stop_btn.config(state=tk.DISABLED, bg="#f1f5f9", fg="#94a3b8", cursor="arrow")
+            self.browse_btn.config(state=tk.NORMAL, bg=self.COLOR_GREEN, fg="#ffffff", cursor="hand2")
             if self.csv_path_var.get():
                 self.preview_btn.config(state=tk.NORMAL)
             self.url_entry.config(state=tk.NORMAL)
