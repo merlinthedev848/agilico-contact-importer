@@ -281,7 +281,7 @@ class AgilicoImporterApp:
         dz_subtitle = tk.Label(
             dropzone,
             text="Supports First Name, Last Name, Display Name & Number (Speed Dial auto-generated)",
-            font=("Segoe UI", 8.5),
+            font=("Segoe UI", 8),
             fg=self.COLOR_TEXT_MUTED,
             bg=self.COLOR_DROPZONE_BG,
             cursor="hand2",
@@ -340,7 +340,7 @@ class AgilicoImporterApp:
             file_header_row,
             text="👁  Preview Contacts",
             command=self._open_csv_preview_modal,
-            font=("Segoe UI", 8.5, "bold"),
+            font=("Segoe UI", 8, "bold"),
             bg="#e0f2fe",
             fg="#0284c7",
             activebackground="#bae6fd",
@@ -366,7 +366,7 @@ class AgilicoImporterApp:
         self.status_detail_label = tk.Label(
             file_status_box,
             textvariable=self.status_detail_var,
-            font=("Segoe UI", 8.5),
+            font=("Segoe UI", 8),
             fg=self.COLOR_TEXT_MUTED,
             bg="#f8fafc",
             anchor="w",
@@ -405,7 +405,7 @@ class AgilicoImporterApp:
         c2_desc = tk.Label(
             card_config,
             text="Direct customer credentials with automated multi-tenant lockout.",
-            font=("Segoe UI", 8.5),
+            font=("Segoe UI", 8),
             fg=self.COLOR_TEXT_MUTED,
             bg=self.COLOR_CARD_BG,
         )
@@ -419,7 +419,7 @@ class AgilicoImporterApp:
         tk.Label(
             fields_frame,
             text="🌐  Portal Base URL:",
-            font=("Segoe UI", 8.5, "bold"),
+            font=("Segoe UI", 8, "bold"),
             fg="#334155",
             bg=self.COLOR_CARD_BG,
         ).pack(anchor="w", pady=(0, 2))
@@ -437,7 +437,7 @@ class AgilicoImporterApp:
         self.url_entry = tk.Entry(
             url_wrap,
             textvariable=self.url_var,
-            font=("Segoe UI", 9.5),
+            font=("Segoe UI", 9),
             bg="#ffffff",
             fg=self.COLOR_TEXT_DARK,
             bd=0,
@@ -453,7 +453,7 @@ class AgilicoImporterApp:
         tk.Label(
             fields_frame,
             text="👤  Customer Portal Username:",
-            font=("Segoe UI", 8.5, "bold"),
+            font=("Segoe UI", 8, "bold"),
             fg="#334155",
             bg=self.COLOR_CARD_BG,
         ).pack(anchor="w", pady=(0, 2))
@@ -471,7 +471,7 @@ class AgilicoImporterApp:
         self.username_entry = tk.Entry(
             user_wrap,
             textvariable=self.username_var,
-            font=("Segoe UI", 9.5),
+            font=("Segoe UI", 9),
             bg="#ffffff",
             fg=self.COLOR_TEXT_DARK,
             bd=0,
@@ -487,7 +487,7 @@ class AgilicoImporterApp:
         tk.Label(
             fields_frame,
             text="🔒  Customer Portal Password:",
-            font=("Segoe UI", 8.5, "bold"),
+            font=("Segoe UI", 8, "bold"),
             fg="#334155",
             bg=self.COLOR_CARD_BG,
         ).pack(anchor="w", pady=(0, 2))
@@ -506,7 +506,7 @@ class AgilicoImporterApp:
             pwd_wrap,
             textvariable=self.password_var,
             show="•",
-            font=("Segoe UI", 9.5),
+            font=("Segoe UI", 9),
             bg="#ffffff",
             fg=self.COLOR_TEXT_DARK,
             bd=0,
@@ -541,7 +541,7 @@ class AgilicoImporterApp:
             fields_frame,
             text="Remember Username",
             variable=self.remember_username_var,
-            font=("Segoe UI", 8.5),
+            font=("Segoe UI", 8),
             bg=self.COLOR_CARD_BG,
             fg="#334155",
             activebackground=self.COLOR_CARD_BG,
@@ -555,7 +555,7 @@ class AgilicoImporterApp:
         tk.Label(
             fields_frame,
             text="🌐  Web Browser Engine:",
-            font=("Segoe UI", 8.5, "bold"),
+            font=("Segoe UI", 8, "bold"),
             fg="#334155",
             bg=self.COLOR_CARD_BG,
         ).pack(anchor="w", pady=(0, 2))
@@ -611,7 +611,7 @@ class AgilicoImporterApp:
             fg="#ffffff",
             activebackground="#334155",
             activeforeground="#ffffff",
-            font=("Segoe UI", 8.5, "bold"),
+            font=("Segoe UI", 8, "bold"),
             pady=7,
             relief=tk.FLAT,
             bd=0,
@@ -628,7 +628,7 @@ class AgilicoImporterApp:
             fg="#94a3b8",
             activebackground=self.COLOR_RED_HOVER,
             activeforeground="#ffffff",
-            font=("Segoe UI", 8.5, "bold"),
+            font=("Segoe UI", 8, "bold"),
             pady=7,
             relief=tk.FLAT,
             bd=0,
@@ -713,7 +713,7 @@ class AgilicoImporterApp:
         c3_desc = tk.Label(
             card_log,
             text="Real-time validation & automation pipeline.",
-            font=("Segoe UI", 8.5),
+            font=("Segoe UI", 8),
             fg=self.COLOR_TEXT_MUTED,
             bg=self.COLOR_CARD_BG,
         )
@@ -731,7 +731,7 @@ class AgilicoImporterApp:
         self.log_text = scrolledtext.ScrolledText(
             log_container,
             wrap=tk.WORD,
-            font=("Consolas", 9.5),
+            font=("Consolas", 9),
             bg=self.COLOR_LOG_BG,
             fg="#ffffff",
             insertbackground="#ffffff",
