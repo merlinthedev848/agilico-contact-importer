@@ -70,6 +70,9 @@ class AgilicoImporterApp:
     COLOR_RED_HOVER = "#dc2626"
     COLOR_BLUE = "#3b82f6"
     COLOR_LOG_BG = "#0f172a"
+    
+    # Hardcoded Portal Endpoint
+    PORTAL_BASE_URL = "https://customerportal.hp2k.co.uk/"
 
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -97,7 +100,6 @@ class AgilicoImporterApp:
         # State variables
         self.csv_path_var = tk.StringVar(value="")
         self.file_name_display_var = tk.StringVar(value="No contacts CSV file selected")
-        self.url_var = tk.StringVar(value="https://customerportal.hp2k.co.uk/")
         self.username_var = tk.StringVar(value="")
         self.password_var = tk.StringVar(value="")
         self.show_password_var = tk.BooleanVar(value=False)
@@ -420,40 +422,6 @@ class AgilicoImporterApp:
         # Fields inside Configuration Card
         fields_frame = tk.Frame(card_config, bg=self.COLOR_CARD_BG)
         fields_frame.pack(fill=tk.X)
-
-        # Base URL
-        tk.Label(
-            fields_frame,
-            text="Portal Base URL:",
-            font=("Segoe UI", 8, "bold"),
-            fg="#334155",
-            bg=self.COLOR_CARD_BG,
-        ).pack(anchor="w", pady=(0, 2))
-
-        url_wrap = tk.Frame(
-            fields_frame,
-            bg="#ffffff",
-            highlightbackground="#cbd5e1",
-            highlightthickness=1,
-            padx=10,
-            pady=3,
-        )
-        url_wrap.pack(fill=tk.X, pady=(0, 4))
-
-        self.url_entry = tk.Entry(
-            url_wrap,
-            textvariable=self.url_var,
-            font=("Segoe UI", 9),
-            bg="#ffffff",
-            fg=self.COLOR_TEXT_DARK,
-            bd=0,
-            relief=tk.FLAT,
-            highlightthickness=0,
-            insertbackground=self.COLOR_TEXT_DARK,
-        )
-        self.url_entry.pack(fill=tk.X)
-        self.url_entry.bind("<FocusIn>", lambda e: url_wrap.config(highlightbackground="#00b862", highlightthickness=2))
-        self.url_entry.bind("<FocusOut>", lambda e: url_wrap.config(highlightbackground="#cbd5e1", highlightthickness=1))
 
         # Customer Username
         tk.Label(
@@ -815,7 +783,7 @@ class AgilicoImporterApp:
         self.root.destroy()
 
     def _load_saved_config(self):
-        """Loads saved username and portal settings from JSON config file if present."""
+        """Loads saved username and browser settings from JSON config file if present."""
         try:
             if os.path.exists(self.config_path):
                 with open(self.config_path, "r", encoding="utf-8") as f:
@@ -823,9 +791,6 @@ class AgilicoImporterApp:
                 saved_user = data.get("username", "")
                 if saved_user:
                     self.username_var.set(saved_user)
-                saved_url = data.get("url", "")
-                if saved_url:
-                    self.url_var.set(saved_url)
                 saved_browser = data.get("browser", "")
                 if saved_browser:
                     self.browser_var.set(saved_browser)
@@ -833,14 +798,13 @@ class AgilicoImporterApp:
             pass
 
     def _save_config(self):
-        """Saves current portal URL and username (if Remember Username is checked). Never saves password."""
+        """Saves current username (if Remember Username is checked) and browser choice. Never saves password."""
         try:
             data = {}
             if self.remember_username_var.get():
                 data["username"] = self.username_var.get().strip()
             else:
                 data["username"] = ""
-            data["url"] = self.url_var.get().strip()
             data["browser"] = self.browser_var.get().strip()
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
@@ -1149,7 +1113,6 @@ class AgilicoImporterApp:
             self.stop_btn.config(state=tk.NORMAL, bg=self.COLOR_RED, fg="#ffffff", cursor="hand2")
             self.browse_btn.config(state=tk.DISABLED, bg="#f1f5f9", fg="#94a3b8", cursor="arrow")
             self.preview_btn.config(state=tk.DISABLED)
-            self.url_entry.config(state=tk.DISABLED)
             self.username_entry.config(state=tk.DISABLED)
             self.password_entry.config(state=tk.DISABLED)
             self.toggle_pwd_btn.config(state=tk.DISABLED)
@@ -1162,7 +1125,6 @@ class AgilicoImporterApp:
             self.browse_btn.config(state=tk.NORMAL, bg="#ffffff", fg=self.COLOR_TEXT_DARK, cursor="hand2")
             if self.csv_path_var.get():
                 self.preview_btn.config(state=tk.NORMAL)
-            self.url_entry.config(state=tk.NORMAL)
             self.username_entry.config(state=tk.NORMAL)
             self.password_entry.config(state=tk.NORMAL)
             self.toggle_pwd_btn.config(state=tk.NORMAL)
@@ -1177,14 +1139,11 @@ class AgilicoImporterApp:
 
     def _start_test_login_thread(self):
         """Starts a standalone pre-flight login and tenant isolation verification."""
-        url = self.url_var.get().strip()
+        url = self.PORTAL_BASE_URL
         username = self.username_var.get().strip()
         password = self.password_var.get().strip()
         browser_choice = self.browser_var.get().strip()
 
-        if not url or url == "https://":
-            messagebox.showerror("Error", "Please enter a valid Agilico Base URL.", parent=self.root)
-            return
         if not username:
             messagebox.showerror("Error", "Please enter the Customer Portal Username.", parent=self.root)
             return
@@ -1261,15 +1220,11 @@ class AgilicoImporterApp:
             self.root.after(0, lambda: self._set_ui_state(False))
 
     def _start_import_thread(self):
-        url = self.url_var.get().strip()
+        url = self.PORTAL_BASE_URL
         username = self.username_var.get().strip()
         password = self.password_var.get().strip()
         browser_choice = self.browser_var.get().strip()
         csv_path = self.csv_path_var.get().strip().strip('"').strip("'")
-
-        if not url or url == "https://":
-            messagebox.showerror("Error", "Please enter a valid Agilico Base URL.", parent=self.root)
-            return
 
         if not username:
             messagebox.showerror("Error", "Please enter the Customer Portal Username.", parent=self.root)
