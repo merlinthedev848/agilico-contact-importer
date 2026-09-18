@@ -658,24 +658,25 @@ class AgilicoImporterApp:
         self.log_text = scrolledtext.ScrolledText(
             card_log,
             wrap=tk.WORD,
-            font=("Consolas", 8),
+            font=("Consolas", 9),
             bg=self.COLOR_LOG_BG,
-            fg="#e2e8f0",
+            fg="#ffffff",
             insertbackground="#ffffff",
             relief=tk.FLAT,
-            padx=6,
-            pady=6,
+            padx=8,
+            pady=8,
         )
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
-        # Color Tags matching ag-diag scheme
-        self.log_text.tag_config("INFO", foreground="#38bdf8")
-        self.log_text.tag_config("SUCCESS", foreground=self.COLOR_GREEN)
-        self.log_text.tag_config("WARNING", foreground="#f59e0b")
-        self.log_text.tag_config("ERROR", foreground=self.COLOR_RED)
-        self.log_text.tag_config("MUTED", foreground=self.COLOR_TEXT_MUTED)
+        # High-contrast color tags with crisp white writing
+        self.log_text.tag_config("INFO", foreground="#ffffff")
+        self.log_text.tag_config("TIMESTAMP", foreground="#94a3b8")
+        self.log_text.tag_config("SUCCESS", foreground="#4ade80")
+        self.log_text.tag_config("WARNING", foreground="#fde047")
+        self.log_text.tag_config("ERROR", foreground="#f87171")
+        self.log_text.tag_config("MUTED", foreground="#ffffff")
 
-        self.log("Ready. Select contacts.csv, enter customer credentials, and click 'START IMPORT'.", level="MUTED")
+        self.log("Ready. Select contacts.csv, enter customer credentials, and click 'START IMPORT'.", level="INFO")
 
     def _create_nav_item(self, parent, label_text: str, is_active: bool = False):
         """Creates an ag-diag style vertical sidebar item with left green active stripe and clean text."""
@@ -993,8 +994,12 @@ class AgilicoImporterApp:
             while True:
                 time_str, msg, level = self.log_queue.get_nowait()
                 self.log_text.config(state=tk.NORMAL)
-                self.log_text.insert(tk.END, f"[{time_str}] ", "MUTED")
-                self.log_text.insert(tk.END, f"[{level}] {msg}\n", level)
+                self.log_text.insert(tk.END, f"[{time_str}] ", "TIMESTAMP")
+                if level in ("SUCCESS", "WARNING", "ERROR"):
+                    self.log_text.insert(tk.END, f"[{level}] ", level)
+                    self.log_text.insert(tk.END, f"{msg}\n", "INFO")
+                else:
+                    self.log_text.insert(tk.END, f"{msg}\n", "INFO")
                 self.log_text.see(tk.END)
                 self.log_text.config(state=tk.DISABLED)
                 self.log_queue.task_done()
