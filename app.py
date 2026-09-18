@@ -145,6 +145,19 @@ class AgilicoImporterApp:
             fieldbackground="#ffffff",
             background="#ffffff",
             foreground=self.COLOR_TEXT_DARK,
+            darkcolor="#cbd5e1",
+            lightcolor="#cbd5e1",
+            bordercolor="#cbd5e1",
+            arrowcolor=self.COLOR_TEXT_DARK,
+            padding=5,
+        )
+        style.map(
+            "TCombobox",
+            fieldbackground=[("readonly", "#ffffff"), ("disabled", "#f8fafc")],
+            selectbackground=[("readonly", "#ffffff")],
+            selectforeground=[("readonly", self.COLOR_TEXT_DARK)],
+            background=[("readonly", "#ffffff"), ("disabled", "#f8fafc")],
+            bordercolor=[("focus", "#00b862"), ("!focus", "#cbd5e1")],
         )
 
         # Root Layout: Left Sidebar + Right Main Area
@@ -275,7 +288,7 @@ class AgilicoImporterApp:
         )
         dz_subtitle.pack(pady=(1, 6))
 
-        # BROWSE FILES Button (Ag-Diag Green Button)
+        # BROWSE FILES Button (Modern flat emerald button)
         self.browse_btn = tk.Button(
             dropzone,
             text="BROWSE CSV FILE",
@@ -285,9 +298,10 @@ class AgilicoImporterApp:
             activebackground=self.COLOR_GREEN_HOVER,
             activeforeground="#ffffff",
             font=("Segoe UI", 9, "bold"),
-            padx=22,
-            pady=5,
+            padx=24,
+            pady=6,
             relief=tk.FLAT,
+            bd=0,
             cursor="hand2",
         )
         self.browse_btn.pack(pady=(0, 2))
@@ -326,15 +340,15 @@ class AgilicoImporterApp:
             file_header_row,
             text="👁 Preview Contacts",
             command=self._open_csv_preview_modal,
-            font=("Segoe UI", 8),
-            bg="#ffffff",
-            fg=self.COLOR_BLUE,
+            font=("Segoe UI", 8, "bold"),
+            bg="#f1f5f9",
+            fg="#0284c7",
             activebackground="#e0f2fe",
-            activeforeground=self.COLOR_BLUE,
-            relief=tk.SOLID,
-            bd=1,
-            padx=6,
-            pady=1,
+            activeforeground="#0369a1",
+            relief=tk.FLAT,
+            bd=0,
+            padx=10,
+            pady=3,
             cursor="hand2",
             state=tk.DISABLED,
         )
@@ -573,9 +587,10 @@ class AgilicoImporterApp:
             activebackground=self.COLOR_GREEN_HOVER,
             activeforeground="#ffffff",
             font=("Segoe UI", 9, "bold"),
-            padx=14,
-            pady=7,
+            padx=16,
+            pady=8,
             relief=tk.FLAT,
+            bd=0,
             cursor="hand2",
         )
         self.start_btn.pack(side=tk.LEFT)
@@ -584,14 +599,15 @@ class AgilicoImporterApp:
             actions_btn_frame,
             text="TEST LOGIN",
             command=self._start_test_login_thread,
-            bg=self.COLOR_BLUE,
+            bg=self.COLOR_SIDEBAR_BG,
             fg="#ffffff",
-            activebackground="#2563eb",
+            activebackground=self.COLOR_SIDEBAR_HOVER,
             activeforeground="#ffffff",
             font=("Segoe UI", 9, "bold"),
-            padx=12,
-            pady=7,
+            padx=14,
+            pady=8,
             relief=tk.FLAT,
+            bd=0,
             cursor="hand2",
         )
         self.test_login_btn.pack(side=tk.LEFT, padx=(8, 0))
@@ -601,14 +617,15 @@ class AgilicoImporterApp:
             text="STOP",
             command=self._stop_import,
             state=tk.DISABLED,
-            bg=self.COLOR_RED,
+            bg="#fca5a5",
             fg="#ffffff",
             activebackground=self.COLOR_RED_HOVER,
             activeforeground="#ffffff",
             font=("Segoe UI", 9, "bold"),
             padx=14,
-            pady=7,
+            pady=8,
             relief=tk.FLAT,
+            bd=0,
             cursor="hand2",
         )
         self.stop_btn.pack(side=tk.LEFT, padx=(8, 0))
@@ -641,31 +658,33 @@ class AgilicoImporterApp:
 
         tk.Button(
             log_actions,
-            text="Export Log",
+            text="Export",
             command=self._export_log,
-            font=("Segoe UI", 8),
-            bg="#ffffff",
-            fg=self.COLOR_TEXT_DARK,
+            font=("Segoe UI", 8, "bold"),
+            bg="#f1f5f9",
+            fg="#334155",
             activebackground="#e2e8f0",
-            relief=tk.SOLID,
-            bd=1,
-            padx=6,
-            pady=1,
+            activeforeground="#0f172a",
+            relief=tk.FLAT,
+            bd=0,
+            padx=8,
+            pady=3,
             cursor="hand2",
         ).pack(side=tk.LEFT, padx=(0, 4))
 
         tk.Button(
             log_actions,
-            text="Copy Log",
+            text="Copy",
             command=self._copy_log,
-            font=("Segoe UI", 8),
-            bg="#ffffff",
-            fg=self.COLOR_TEXT_DARK,
+            font=("Segoe UI", 8, "bold"),
+            bg="#f1f5f9",
+            fg="#334155",
             activebackground="#e2e8f0",
-            relief=tk.SOLID,
-            bd=1,
-            padx=6,
-            pady=1,
+            activeforeground="#0f172a",
+            relief=tk.FLAT,
+            bd=0,
+            padx=8,
+            pady=3,
             cursor="hand2",
         ).pack(side=tk.LEFT, padx=(0, 4))
 
@@ -673,14 +692,15 @@ class AgilicoImporterApp:
             log_actions,
             text="Clear",
             command=self._clear_log,
-            font=("Segoe UI", 8),
-            bg="#ffffff",
-            fg=self.COLOR_TEXT_DARK,
+            font=("Segoe UI", 8, "bold"),
+            bg="#f1f5f9",
+            fg="#334155",
             activebackground="#e2e8f0",
-            relief=tk.SOLID,
-            bd=1,
-            padx=6,
-            pady=1,
+            activeforeground="#0f172a",
+            relief=tk.FLAT,
+            bd=0,
+            padx=8,
+            pady=3,
             cursor="hand2",
         ).pack(side=tk.LEFT)
 
