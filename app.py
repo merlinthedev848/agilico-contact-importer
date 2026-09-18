@@ -309,15 +309,36 @@ class AgilicoImporterApp:
         )
         file_status_box.pack(fill=tk.X)
 
+        file_header_row = tk.Frame(file_status_box, bg="#f8fafc")
+        file_header_row.pack(fill=tk.X)
+
         self.file_name_label = tk.Label(
-            file_status_box,
+            file_header_row,
             textvariable=self.file_name_display_var,
             font=("Segoe UI", 9, "bold"),
             fg=self.COLOR_TEXT_DARK,
             bg="#f8fafc",
             anchor="w",
         )
-        self.file_name_label.pack(fill=tk.X)
+        self.file_name_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        self.preview_btn = tk.Button(
+            file_header_row,
+            text="👁 Preview Contacts",
+            command=self._open_csv_preview_modal,
+            font=("Segoe UI", 8),
+            bg="#ffffff",
+            fg=self.COLOR_BLUE,
+            activebackground="#e0f2fe",
+            activeforeground=self.COLOR_BLUE,
+            relief=tk.SOLID,
+            bd=1,
+            padx=6,
+            pady=1,
+            cursor="hand2",
+            state=tk.DISABLED,
+        )
+        self.preview_btn.pack(side=tk.RIGHT)
 
         # Green Progress Bar
         self.progressbar = ttk.Progressbar(
@@ -500,9 +521,9 @@ class AgilicoImporterApp:
         )
         self.browser_combo.pack(fill=tk.X, ipady=2, pady=(0, 8))
 
-        # Actions Row (Start / Stop)
+        # Actions Row (Start / Test Login / Stop)
         actions_btn_frame = tk.Frame(card_config, bg=self.COLOR_CARD_BG)
-        actions_btn_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=(10, 0))
+        actions_btn_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=(8, 0))
 
         self.start_btn = tk.Button(
             actions_btn_frame,
@@ -513,12 +534,28 @@ class AgilicoImporterApp:
             activebackground=self.COLOR_GREEN_HOVER,
             activeforeground="#ffffff",
             font=("Segoe UI", 9, "bold"),
-            padx=18,
+            padx=14,
             pady=7,
             relief=tk.FLAT,
             cursor="hand2",
         )
         self.start_btn.pack(side=tk.LEFT)
+
+        self.test_login_btn = tk.Button(
+            actions_btn_frame,
+            text="TEST LOGIN",
+            command=self._start_test_login_thread,
+            bg=self.COLOR_BLUE,
+            fg="#ffffff",
+            activebackground="#2563eb",
+            activeforeground="#ffffff",
+            font=("Segoe UI", 9, "bold"),
+            padx=12,
+            pady=7,
+            relief=tk.FLAT,
+            cursor="hand2",
+        )
+        self.test_login_btn.pack(side=tk.LEFT, padx=(8, 0))
 
         self.stop_btn = tk.Button(
             actions_btn_frame,
@@ -530,12 +567,12 @@ class AgilicoImporterApp:
             activebackground=self.COLOR_RED_HOVER,
             activeforeground="#ffffff",
             font=("Segoe UI", 9, "bold"),
-            padx=16,
+            padx=14,
             pady=7,
             relief=tk.FLAT,
             cursor="hand2",
         )
-        self.stop_btn.pack(side=tk.LEFT, padx=(10, 0))
+        self.stop_btn.pack(side=tk.LEFT, padx=(8, 0))
 
         # CARD 3 (RIGHT): Live Activity Log Card
         card_log = tk.Frame(
@@ -565,6 +602,21 @@ class AgilicoImporterApp:
 
         tk.Button(
             log_actions,
+            text="Export Log",
+            command=self._export_log,
+            font=("Segoe UI", 8),
+            bg="#ffffff",
+            fg=self.COLOR_TEXT_DARK,
+            activebackground="#e2e8f0",
+            relief=tk.SOLID,
+            bd=1,
+            padx=6,
+            pady=1,
+            cursor="hand2",
+        ).pack(side=tk.LEFT, padx=(0, 4))
+
+        tk.Button(
+            log_actions,
             text="Copy Log",
             command=self._copy_log,
             font=("Segoe UI", 8),
@@ -573,10 +625,10 @@ class AgilicoImporterApp:
             activebackground="#e2e8f0",
             relief=tk.SOLID,
             bd=1,
-            padx=8,
+            padx=6,
             pady=1,
             cursor="hand2",
-        ).pack(side=tk.LEFT, padx=(0, 6))
+        ).pack(side=tk.LEFT, padx=(0, 4))
 
         tk.Button(
             log_actions,
@@ -588,7 +640,7 @@ class AgilicoImporterApp:
             activebackground="#e2e8f0",
             relief=tk.SOLID,
             bd=1,
-            padx=8,
+            padx=6,
             pady=1,
             cursor="hand2",
         ).pack(side=tk.LEFT)
@@ -727,10 +779,208 @@ class AgilicoImporterApp:
         if filename:
             clean_path = filename.strip().strip('"').strip("'")
             self.csv_path_var.set(clean_path)
-            base_name = os.path.basename(clean_path)
-            self.file_name_display_var.set(f"📄 {base_name} ({clean_path})")
-            self.status_detail_var.set(f"Selected: {base_name} - Ready to start import")
-            self.log(f"Selected CSV file: {clean_path}", level="INFO")
+            self._analyze_and_preview_csv(clean_path)
+
+    def _analyze_and_preview_csv(self, file_path: str):
+        """Analyzes loaded CSV file, validates rows, detects duplicates, and updates UI status."""
+        contacts = self._read_contacts_csv(file_path)
+        base_name = os.path.basename(file_path)
+        if not contacts:
+            self.file_name_display_var.set(f"📄 {base_name} (0 contacts found)")
+            self.status_detail_var.set("Warning: No valid contact rows found in selected CSV.")
+            self.preview_btn.config(state=tk.DISABLED)
+            self.log(f"Warning: No valid contact rows found in '{file_path}'.", level="WARNING")
+            return
+
+        seen_numbers = set()
+        seen_names = set()
+        dup_numbers = 0
+        dup_names = 0
+        for c in contacts:
+            num = re.sub(r"[^\d+]", "", c.get("number", ""))
+            name = (c.get("display_name") or "").strip().lower()
+            if num:
+                if num in seen_numbers:
+                    dup_numbers += 1
+                seen_numbers.add(num)
+            if name:
+                if name in seen_names:
+                    dup_names += 1
+                seen_names.add(name)
+
+        stats_str = f"📄 {base_name} ({len(contacts)} contacts)"
+        if dup_numbers > 0 or dup_names > 0:
+            stats_str += f" — {dup_numbers} dup numbers"
+
+        self.file_name_display_var.set(stats_str)
+        self.status_detail_var.set(f"Loaded {len(contacts)} contacts ready for import. Click 'Preview Contacts' to inspect.")
+        self.preview_btn.config(state=tk.NORMAL)
+        self.log(f"Parsed CSV '{base_name}': {len(contacts)} valid contacts detected ({dup_numbers} duplicate numbers).", level="INFO")
+
+    def _open_csv_preview_modal(self):
+        """Opens an interactive modal preview dialog displaying all parsed contacts, duplicates, and format status."""
+        csv_path = self.csv_path_var.get().strip().strip('"').strip("'")
+        if not csv_path or not os.path.exists(csv_path):
+            messagebox.showinfo("Preview CSV", "Please select a contacts CSV file first.", parent=self.root)
+            return
+
+        contacts = self._read_contacts_csv(csv_path)
+        if not contacts:
+            messagebox.showwarning("Preview CSV", "No contacts could be parsed from the selected CSV file.", parent=self.root)
+            return
+
+        preview_win = tk.Toplevel(self.root)
+        preview_win.title(f"CSV Pre-Flight Inspection — {os.path.basename(csv_path)}")
+        preview_win.geometry("820x520")
+        preview_win.minsize(700, 420)
+        preview_win.transient(self.root)
+        preview_win.grab_set()
+
+        # Modal Header
+        header_frame = tk.Frame(preview_win, bg=self.COLOR_SIDEBAR_BG, padx=18, pady=12)
+        header_frame.pack(fill=tk.X)
+
+        tk.Label(
+            header_frame,
+            text="Pre-Flight CSV Inspection",
+            font=("Segoe UI", 12, "bold"),
+            fg="#ffffff",
+            bg=self.COLOR_SIDEBAR_BG,
+        ).pack(anchor="w")
+
+        tk.Label(
+            header_frame,
+            text="Review parsed contacts, auto-detected columns, and duplicate checks before importing.",
+            font=("Segoe UI", 8),
+            fg="#94a3b8",
+            bg=self.COLOR_SIDEBAR_BG,
+        ).pack(anchor="w")
+
+        # Table container
+        body_frame = tk.Frame(preview_win, bg=self.COLOR_APP_BG, padx=16, pady=12)
+        body_frame.pack(fill=tk.BOTH, expand=True)
+
+        cols = ("row", "first_name", "last_name", "display_name", "number", "type")
+        tree = ttk.Treeview(body_frame, columns=cols, show="headings", selectmode="browse")
+
+        tree.heading("row", text="#")
+        tree.heading("first_name", text="First Name")
+        tree.heading("last_name", text="Last Name")
+        tree.heading("display_name", text="Display Name (Min 5 Chars)")
+        tree.heading("number", text="Number")
+        tree.heading("type", text="Detected Type")
+
+        tree.column("row", width=40, anchor="center")
+        tree.column("first_name", width=120, anchor="w")
+        tree.column("last_name", width=120, anchor="w")
+        tree.column("display_name", width=200, anchor="w")
+        tree.column("number", width=130, anchor="w")
+        tree.column("type", width=100, anchor="center")
+
+        tree_scroll = ttk.Scrollbar(body_frame, orient=tk.VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=tree_scroll.set)
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        seen_nums = set()
+        dup_count = 0
+
+        for c in contacts:
+            phone = (c.get("number") or "").strip()
+            clean_num = re.sub(r"[^\d+]", "", phone)
+
+            is_dup = False
+            if clean_num:
+                if clean_num in seen_nums:
+                    is_dup = True
+                    dup_count += 1
+                seen_nums.add(clean_num)
+
+            detected_type = "—"
+            if clean_num:
+                if clean_num.startswith(("07", "+447", "447", "00447")):
+                    detected_type = "Mobile"
+                else:
+                    detected_type = "Work"
+
+            tag = "dup" if is_dup else "normal"
+            tree.insert(
+                "",
+                tk.END,
+                values=(
+                    c.get("row_num", ""),
+                    c.get("first_name", ""),
+                    c.get("last_name", ""),
+                    c.get("display_name", ""),
+                    f"{phone} (DUP)" if is_dup else phone,
+                    detected_type,
+                ),
+                tags=(tag,),
+            )
+
+        tree.tag_configure("dup", background="#fee2e2", foreground="#991b1b")
+        tree.tag_configure("normal", background="#ffffff")
+
+        # Bottom Summary Bar
+        footer = tk.Frame(preview_win, bg="#ffffff", padx=16, pady=10, highlightbackground=self.COLOR_BORDER, highlightthickness=1)
+        footer.pack(fill=tk.X, side=tk.BOTTOM)
+
+        status_text = f"Total Contacts: {len(contacts)}  |  Duplicate Numbers: {dup_count}  |  Speed Dials: Auto-Generated"
+        tk.Label(
+            footer,
+            text=status_text,
+            font=("Segoe UI", 9, "bold"),
+            fg=self.COLOR_TEXT_DARK,
+            bg="#ffffff",
+        ).pack(side=tk.LEFT)
+
+        tk.Button(
+            footer,
+            text="Close",
+            command=preview_win.destroy,
+            font=("Segoe UI", 9, "bold"),
+            bg=self.COLOR_SIDEBAR_BG,
+            fg="#ffffff",
+            activebackground=self.COLOR_SIDEBAR_HOVER,
+            activeforeground="#ffffff",
+            padx=18,
+            pady=4,
+            relief=tk.FLAT,
+            cursor="hand2",
+        ).pack(side=tk.RIGHT)
+
+    def _export_log(self):
+        """Exports the entire activity and diagnostics log to a timestamped .txt audit file."""
+        try:
+            content = self.log_text.get("1.0", tk.END).strip()
+            if not content:
+                messagebox.showwarning("Export Log", "The activity log is currently empty.", parent=self.root)
+                return
+
+            default_name = f"Agilico_Import_Audit_Log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            save_path = filedialog.asksaveasfilename(
+                title="Save Audit Log",
+                initialfile=default_name,
+                defaultextension=".txt",
+                filetypes=[("Text Files (*.txt)", "*.txt"), ("All Files (*.*)", "*.*")],
+                parent=self.root,
+            )
+            if save_path:
+                header = (
+                    f"================================================================================\n"
+                    f"AGILICO CONTACT IMPORTER - LITE (v1.0.2) AUDIT LOG\n"
+                    f"Export Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+                    f"Portal Target: {self.url_var.get().strip()}\n"
+                    f"Customer Account: {self.username_var.get().strip()}\n"
+                    f"================================================================================\n\n"
+                )
+                with open(save_path, "w", encoding="utf-8") as f:
+                    f.write(header + content + "\n")
+                self.log(f"Audit log successfully exported to: {save_path}", level="SUCCESS")
+                messagebox.showinfo("Log Exported", f"Audit log saved successfully to:\n{save_path}", parent=self.root)
+        except Exception as ex:
+            self.log(f"Failed to export log: {ex}", level="ERROR")
+            messagebox.showerror("Export Failed", f"Could not save audit log:\n{ex}", parent=self.root)
 
     def log(self, message: str, level: str = "INFO"):
         """Thread-safe logging method that enqueues messages."""
@@ -801,8 +1051,10 @@ class AgilicoImporterApp:
         self.is_running = is_running
         if is_running:
             self.start_btn.config(state=tk.DISABLED, bg="#94d3a2", cursor="arrow")
+            self.test_login_btn.config(state=tk.DISABLED, bg="#93c5fd", cursor="arrow")
             self.stop_btn.config(state=tk.NORMAL, bg=self.COLOR_RED, cursor="hand2")
             self.browse_btn.config(state=tk.DISABLED, bg="#94d3a2")
+            self.preview_btn.config(state=tk.DISABLED)
             self.url_entry.config(state=tk.DISABLED)
             self.username_entry.config(state=tk.DISABLED)
             self.password_entry.config(state=tk.DISABLED)
@@ -811,8 +1063,11 @@ class AgilicoImporterApp:
             self.browser_combo.config(state=tk.DISABLED)
         else:
             self.start_btn.config(state=tk.NORMAL, bg=self.COLOR_GREEN, cursor="hand2")
+            self.test_login_btn.config(state=tk.NORMAL, bg=self.COLOR_BLUE, cursor="hand2")
             self.stop_btn.config(state=tk.DISABLED, bg="#fca5a5", cursor="arrow")
             self.browse_btn.config(state=tk.NORMAL, bg=self.COLOR_GREEN)
+            if self.csv_path_var.get():
+                self.preview_btn.config(state=tk.NORMAL)
             self.url_entry.config(state=tk.NORMAL)
             self.username_entry.config(state=tk.NORMAL)
             self.password_entry.config(state=tk.NORMAL)
@@ -825,6 +1080,91 @@ class AgilicoImporterApp:
             self.stop_requested = True
             self.status_detail_var.set("Stopping import process...")
             self.log("Stopping import process requested by user...", level="WARNING")
+
+    def _start_test_login_thread(self):
+        """Starts a standalone pre-flight login and tenant isolation verification."""
+        url = self.url_var.get().strip()
+        username = self.username_var.get().strip()
+        password = self.password_var.get().strip()
+        browser_choice = self.browser_var.get().strip()
+
+        if not url or url == "https://":
+            messagebox.showerror("Error", "Please enter a valid Agilico Base URL.", parent=self.root)
+            return
+        if not username:
+            messagebox.showerror("Error", "Please enter the Customer Portal Username.", parent=self.root)
+            return
+        if not password:
+            messagebox.showerror("Error", "Please enter the Customer Portal Password.", parent=self.root)
+            return
+
+        self._save_config()
+        self._set_ui_state(True)
+        self.stop_requested = False
+        self.status_detail_var.set("Running pre-flight test login...")
+
+        self.import_thread = threading.Thread(
+            target=self._run_test_login,
+            args=(url, username, password, browser_choice),
+            daemon=True,
+        )
+        self.import_thread.start()
+
+    def _run_test_login(self, url: str, username: str, password: str, browser_choice: str):
+        """Performs pre-flight authentication and GDPR tenant lockout verification without importing contacts."""
+        driver = None
+        try:
+            self.log("=" * 60, level="MUTED")
+            self.log("[PRE-FLIGHT] Starting Test Login & GDPR Safeguard Check...", level="INFO")
+            self.status_detail_var.set(f"Launching {browser_choice} for test verification...")
+
+            if self.driver:
+                try:
+                    self.driver.quit()
+                except Exception:
+                    pass
+                self.driver = None
+
+            self.driver, b_name = self._create_browser_driver(browser_choice)
+            driver = self.driver
+
+            self.log(f"[PRE-FLIGHT] Navigating to portal: {url}...", level="INFO")
+            driver.get(url)
+            self._wait_for_page_ready(driver, timeout=15.0)
+
+            wait = WebDriverWait(driver, 15)
+            self._login_customer(url, username, password, wait)
+            self._verify_gdpr_tenant_lockout(url)
+            self._verify_session_alive()
+
+            self.log("[PRE-FLIGHT] SUCCESS: Credentials verified & single-tenant isolation confirmed!", level="SUCCESS")
+            self.log("=" * 60, level="MUTED")
+            self.status_detail_var.set("✓ Pre-flight test login successful. Safe to proceed with import.")
+
+            messagebox.showinfo(
+                "Pre-Flight Verification Successful",
+                f"✓ Customer credentials verified successfully.\n"
+                f"✓ GDPR Tenant Lockout passed: Single-tenant customer isolation confirmed.\n"
+                f"✓ Portal session is active and secure.\n\n"
+                f"You are safe to proceed with contact imports.",
+                parent=self.root,
+            )
+        except PermissionError as pe:
+            self.log(f"[PRE-FLIGHT] Security Alert: {str(pe)}", level="ERROR")
+            self.status_detail_var.set("Test Login Failed: Multi-tenant or invalid login.")
+            messagebox.showerror("GDPR Security Alert", str(pe), parent=self.root)
+        except Exception as ex:
+            self.log(f"[PRE-FLIGHT] Verification error: {str(ex)}", level="ERROR")
+            self.status_detail_var.set("Test Login Failed.")
+            messagebox.showerror("Pre-Flight Test Failed", f"Could not authenticate or verify account:\n{str(ex)}", parent=self.root)
+        finally:
+            if driver:
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+                self.driver = None
+            self.root.after(0, lambda: self._set_ui_state(False))
 
     def _start_import_thread(self):
         url = self.url_var.get().strip()
@@ -1024,6 +1364,25 @@ class AgilicoImporterApp:
 
         raise WebDriverException(f"Could not find or launch any supported browser (Edge, Chrome, Firefox). Error: {last_err}")
 
+    def _dismiss_portal_overlays(self, driver):
+        """Proactively dismisses cookie consent popups, service alerts, and stray backdrop masks."""
+        if not driver:
+            return
+        dismiss_xpaths = [
+            "//button[contains(@id, 'cookie') or contains(@class, 'cookie') or contains(translate(., 'COOKIE', 'cookie'), 'cookie') or contains(translate(., 'ACCEPT', 'accept'), 'accept all') or contains(translate(., 'AGREE', 'agree'), 'i agree')]",
+            "//div[contains(@class, 'cc-window') or contains(@class, 'cookie-banner')]//button",
+            "//button[contains(@class, 'close') and @aria-label='Close' and ancestor::div[contains(@class, 'alert') or contains(@class, 'banner')]]",
+        ]
+        for xp in dismiss_xpaths:
+            try:
+                elems = driver.find_elements(By.XPATH, xp)
+                for el in elems:
+                    if el.is_displayed() and el.is_enabled():
+                        driver.execute_script("arguments[0].click();", el)
+                        break
+            except Exception:
+                pass
+
     def _wait_for_page_ready(self, driver, timeout: float = 15.0):
         """Waits for the browser DOM and active network requests to finish loading."""
         try:
@@ -1032,7 +1391,8 @@ class AgilicoImporterApp:
             )
         except Exception:
             pass
-        time.sleep(0.5)
+        self._dismiss_portal_overlays(driver)
+        time.sleep(0.3)
 
     def _safe_click(self, driver, element, retries: int = 3):
         """Scrolls element into center and clicks with robust JavaScript fallback and animation retries."""
@@ -1656,14 +2016,15 @@ class AgilicoImporterApp:
         return verified, missing
 
     def _export_remaining_contacts(self, contacts: list, completed_count: int, csv_path: str):
-        """Exports any unimported contacts from the CSV to remaining_contacts.csv."""
+        """Exports any unimported contacts from the CSV to unprocessed_contacts_[timestamp].csv and offers to open folder."""
         remaining = contacts[completed_count:]
         if not remaining:
             return None
 
         try:
-            orig_dir = os.path.dirname(csv_path) if csv_path else os.path.expanduser("~")
-            export_path = os.path.join(orig_dir, "remaining_contacts.csv")
+            orig_dir = os.path.dirname(os.path.abspath(csv_path)) if csv_path else os.getcwd()
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            export_path = os.path.join(orig_dir, f"unprocessed_contacts_{timestamp}.csv")
 
             with open(export_path, "w", newline="", encoding="utf-8-sig") as f:
                 writer = csv.DictWriter(
@@ -1679,6 +2040,19 @@ class AgilicoImporterApp:
                         "Number": c.get("number", ""),
                     })
             self.log(f"Exported {len(remaining)} remaining unimported contacts to: {export_path}", level="INFO")
+
+            def prompt_open_dir():
+                if messagebox.askyesno(
+                    "Unprocessed Contacts Saved",
+                    f"Saved {len(remaining)} unprocessed contacts to:\n{export_path}\n\nWould you like to open this folder in File Explorer now?",
+                    parent=self.root,
+                ):
+                    try:
+                        os.startfile(orig_dir)
+                    except Exception:
+                        pass
+
+            self.root.after(200, prompt_open_dir)
             return export_path
         except Exception as ex:
             self.log(f"Could not export remaining contacts: {ex}", level="WARNING")
@@ -1736,7 +2110,7 @@ class AgilicoImporterApp:
             fail_count = 0
             halted_by_validation = False
 
-            # Step 7: Loop through each contact
+            # Step 7: Loop through each contact with auto-retry
             for idx, contact in enumerate(contacts, start=1):
                 if self.stop_requested:
                     self.log("Process stopped by user.", level="WARNING")
@@ -1756,203 +2130,226 @@ class AgilicoImporterApp:
                     level="INFO",
                 )
 
-                try:
-                    self._dismiss_unexpected_alert()
+                max_retries = 2
+                contact_completed = False
 
-                    # 7.0 Ensure we are on the main Contacts list view before clicking Add Contact
-                    current_url = (self.driver.current_url or "").rstrip("/").lower()
-                    if not current_url.endswith("/contacts") or any(sub in current_url for sub in ["/create", "/edit", "/add", "/details"]):
-                        self._return_to_contacts_list(contacts_url)
-
-                    # 7a. Click the main 'Add' Contact button (strictly excluding ContactNumbers links)
-                    add_contact_xpaths = [
-                        "//a[contains(@href, '/Contacts/Create') or contains(@href, '/Contacts/Add')]",
-                        "//a[(contains(., 'Add') or contains(., 'Create') or .//i[contains(@class, 'fa-plus')]) and not(contains(@href, 'ContactNumbers')) and not(contains(@class, 'x-overlay')) and not(contains(., 'Back'))]",
-                        "//button[(contains(., 'Add') or contains(., 'Create') or .//i[contains(@class, 'fa-plus')]) and not(contains(@class, 'x-overlay')) and not(contains(., 'Back'))]",
-                        "//a[contains(translate(., 'ADD', 'add'), 'add') and not(contains(@href, 'ContactNumbers')) and not(contains(@class, 'x-overlay')) and not(contains(., 'Back'))]",
-                    ]
-                    add_btn = None
-                    for xpath in add_contact_xpaths:
-                        try:
-                            elems = self.driver.find_elements(By.XPATH, xpath)
-                            for el in elems:
-                                if el.is_displayed() and el.is_enabled():
-                                    if not self._is_back_or_nav_element(el):
-                                        add_btn = el
-                                        break
-                            if add_btn:
-                                break
-                        except Exception:
-                            continue
-
-                    if not add_btn:
-                        raise NoSuchElementException("Could not locate the 'Add' button on Contacts view.")
-
-                    self.log("Clicking 'Add' contact button...", level="INFO")
-                    self._safe_click(self.driver, add_btn)
-                    self._wait_for_page_ready(self.driver, timeout=15.0)
-
-                    # Verify session
-                    self._verify_session_alive()
-
-                    # 7b. Wait for the form (Contact Details) to load
-                    for form_indicator in [
-                        "//div[contains(., 'Contact Details')]",
-                        "//span[contains(., 'Contact Details')]",
-                        "//h4[contains(., 'Contact Details')]",
-                        "//h3[contains(., 'Contact Details')]",
-                        "//form",
-                        "//div[contains(@class, 'x-window')]",
-                    ]:
-                        try:
-                            wait.until(EC.visibility_of_element_located((By.XPATH, form_indicator)))
-                            break
-                        except TimeoutException:
-                            continue
-
-                    # 7c. Populate Contact Details form fields (Speed Dial is auto-generated by portal)
-                    if contact["display_name"] and len(contact["display_name"]) < 5:
-                        contact["display_name"] = contact["display_name"].ljust(5)
-
-                    # First Name
-                    fn_elem = self._find_input_field(
-                        self.driver, wait, ["first name", "firstname", "first_name", "fname"]
-                    )
-                    if fn_elem and contact["first_name"]:
-                        self._populate_input(self.driver, fn_elem, contact["first_name"])
-
-                    # Last Name
-                    ln_elem = self._find_input_field(
-                        self.driver, wait, ["last name", "lastname", "last_name", "lname"]
-                    )
-                    if ln_elem and contact["last_name"]:
-                        self._populate_input(self.driver, ln_elem, contact["last_name"])
-
-                    # Display Name
-                    dn_elem = self._find_input_field(
-                        self.driver, wait, ["display name", "displayname", "display_name", "name"]
-                    )
-                    if dn_elem and contact["display_name"]:
-                        self._populate_input(self.driver, dn_elem, contact["display_name"])
-
-                    if not self._sleep(0.3):
-                        break
-
-                    # 7d. Click initial save button: <button type="submit" class="btn btn-primary x-save"><i class="fa fa-save"></i></button>
-                    save_btn = self._find_save_button()
-                    if not save_btn:
-                        raise NoSuchElementException("Could not locate the 'Save' button (<button type='submit' class='btn btn-primary x-save'>).")
-
-                    self.log(f"Saving contact details for {contact['display_name']} (<button class='btn btn-primary x-save'>)...", level="INFO")
-                    self._safe_click(self.driver, save_btn)
-                    self._wait_for_page_ready(self.driver, timeout=15.0)
-
-                    if not self._sleep(0.4):
-                        break
-
-                    # 7e. If contact has a number, open <a href="/ContactNumbers/Add?ContactId=###" class="btn btn-default x-overlay"><i class="fa fa-plus"></i> Add</a>
-                    phone_number = contact.get("number", "").strip()
-                    if phone_number:
-                        self.log("Locating Add Number link (<a href='/ContactNumbers/Add...' class='btn btn-default x-overlay'>)...", level="INFO")
-                        add_num_btn = self._find_add_number_button(wait)
-
-                        if not add_num_btn:
-                            self.log("Could not locate '<a href=\"/ContactNumbers/Add...\" class=\"btn btn-default x-overlay\">' button.", level="WARNING")
-                        else:
-                            self.log("Clicking Add Number button...", level="INFO")
-                            self._safe_click(self.driver, add_num_btn)
-                            self._wait_for_page_ready(self.driver, timeout=10.0)
-
-                            # Locate Number field: <input id="Number" name="Number" ...>
-                            num_elem = None
-                            try:
-                                num_elem = WebDriverWait(self.driver, 8).until(
-                                    lambda d: self._find_modal_number_input(wait)
-                                )
-                            except TimeoutException:
-                                num_elem = self._find_modal_number_input(wait)
-
-                            if num_elem:
-                                self._populate_input(self.driver, num_elem, phone_number)
-                                self.log(f"Entered telephone number '{phone_number}' into <input id='Number'>...", level="INFO")
-                            else:
-                                self.log("Could not locate '<input id=\"Number\" name=\"Number\">' field.", level="WARNING")
-
-                            if not self._sleep(0.3):
-                                break
-
-                            # Determine Type: 07XXXXXXXXX -> Mobile, non-07 -> Work
-                            clean_num = re.sub(r"[^\d+]", "", phone_number)
-                            if clean_num.startswith(("07", "+447", "447", "00447")):
-                                target_type = "Mobile"
-                            else:
-                                target_type = "Work"
-
-                            self.log(f"Selecting dropdown type '{target_type}' in <select id='ContactNumberTypeID'>...", level="INFO")
-                            selected = self._select_type_dropdown(self.driver, wait, target_type)
-                            if not selected:
-                                self.log(f"Could not automatically select dropdown '{target_type}'.", level="WARNING")
-
-                            if not self._sleep(0.3):
-                                break
-
-                            # Click Save on Number modal: scoped to modal overlay
-                            num_save_btn = self._find_modal_save_button()
-
-                            if num_save_btn:
-                                self.log(f"Saving telephone number ({target_type}: {phone_number}) via modal save...", level="INFO")
-                                self._safe_click(self.driver, num_save_btn)
-                                self._wait_for_modal_backdrop_gone(timeout=6.0)
-                                self._wait_for_page_ready(self.driver, timeout=10.0)
-                                self.log(f"Successfully saved telephone number ({target_type}: {phone_number})", level="SUCCESS")
-                            else:
-                                self.log("Could not locate 'Save' button for number modal.", level="WARNING")
-
-                            if not self._sleep(0.3):
-                                break
-
-                            # Press Save again once the screen updates back to the contact form to commit final changes
-                            self.log("Screen updated. Finalizing contact details by pressing Save again...", level="INFO")
-                            final_save_btn = self._find_save_button()
-                            if final_save_btn:
-                                self._safe_click(self.driver, final_save_btn)
-                                self._wait_for_page_ready(self.driver, timeout=15.0)
-                                self.log(f"Final contact save confirmed for {contact['display_name']}.", level="SUCCESS")
-
-                    # After EVERY contact save (whether with or without number), click back on Contacts link to return to list view
-                    self._return_to_contacts_list(contacts_url)
-
-                    # Real-time verification of this contact on the page
-                    is_verified = self._verify_contact_on_page(contact, contacts_url)
-                    if not is_verified:
-                        halted_by_validation = True
-                        exp_path = self._export_remaining_contacts(contacts, idx - 1, csv_path)
-                        fail_msg = (
-                            f"Real-Time Verification Failed!\n\n"
-                            f"Contact '{contact['display_name']}' (Row {contact['row_num']}) could not be confirmed on the live portal page after creation.\n\n"
-                            f"The importer has been halted immediately to safeguard data integrity."
-                        )
-                        if exp_path:
-                            fail_msg += f"\n\nRemaining unimported contacts exported to:\n{exp_path}"
-                        self.log(fail_msg, level="ERROR")
-                        messagebox.showwarning("Real-Time Verification Failed", fail_msg, parent=self.root)
-                        break
-
-                    success_count += 1
-                    self.log(f"Successfully completed and verified contact {idx}/{len(contacts)}: {contact['display_name']}", level="SUCCESS")
-                    if not self._sleep(0.4):
-                        break
-
-                except Exception as ex:
-                    fail_count += 1
-                    err_msg = str(ex).splitlines()[0] if str(ex) else "Unknown error"
-                    self.failed_contacts.append((contact.get("row_num", idx), contact.get("display_name", "Unknown"), err_msg))
-                    self.log(f"Error processing row {contact['row_num']} ({contact['display_name']}): {err_msg}", level="ERROR")
+                for attempt in range(1, max_retries + 1):
                     try:
+                        self._dismiss_unexpected_alert()
+
+                        # Ensure we are on the main Contacts list view before clicking Add Contact
+                        current_url = (self.driver.current_url or "").rstrip("/").lower()
+                        if not current_url.endswith("/contacts") or any(sub in current_url for sub in ["/create", "/edit", "/add", "/details"]):
+                            self._return_to_contacts_list(contacts_url)
+
+                        # 7a. Click the main 'Add' Contact button (strictly excluding ContactNumbers links)
+                        add_contact_xpaths = [
+                            "//a[contains(@href, '/Contacts/Create') or contains(@href, '/Contacts/Add')]",
+                            "//a[(contains(., 'Add') or contains(., 'Create') or .//i[contains(@class, 'fa-plus')]) and not(contains(@href, 'ContactNumbers')) and not(contains(@class, 'x-overlay')) and not(contains(., 'Back'))]",
+                            "//button[(contains(., 'Add') or contains(., 'Create') or .//i[contains(@class, 'fa-plus')]) and not(contains(@class, 'x-overlay')) and not(contains(., 'Back'))]",
+                            "//a[contains(translate(., 'ADD', 'add'), 'add') and not(contains(@href, 'ContactNumbers')) and not(contains(@class, 'x-overlay')) and not(contains(., 'Back'))]",
+                        ]
+                        add_btn = None
+                        for xpath in add_contact_xpaths:
+                            try:
+                                elems = self.driver.find_elements(By.XPATH, xpath)
+                                for el in elems:
+                                    if el.is_displayed() and el.is_enabled():
+                                        if not self._is_back_or_nav_element(el):
+                                            add_btn = el
+                                            break
+                                if add_btn:
+                                    break
+                            except Exception:
+                                continue
+
+                        if not add_btn:
+                            raise NoSuchElementException("Could not locate the 'Add' button on Contacts view.")
+
+                        self.log("Clicking 'Add' contact button...", level="INFO")
+                        self._safe_click(self.driver, add_btn)
+                        self._wait_for_page_ready(self.driver, timeout=15.0)
+
+                        # Verify session
+                        self._verify_session_alive()
+
+                        # 7b. Wait for the form (Contact Details) to load
+                        for form_indicator in [
+                            "//div[contains(., 'Contact Details')]",
+                            "//span[contains(., 'Contact Details')]",
+                            "//h4[contains(., 'Contact Details')]",
+                            "//h3[contains(., 'Contact Details')]",
+                            "//form",
+                            "//div[contains(@class, 'x-window')]",
+                        ]:
+                            try:
+                                wait.until(EC.visibility_of_element_located((By.XPATH, form_indicator)))
+                                break
+                            except TimeoutException:
+                                continue
+
+                        # 7c. Populate Contact Details form fields (Speed Dial is auto-generated by portal)
+                        if contact["display_name"] and len(contact["display_name"]) < 5:
+                            contact["display_name"] = contact["display_name"].ljust(5)
+
+                        # First Name
+                        fn_elem = self._find_input_field(
+                            self.driver, wait, ["first name", "firstname", "first_name", "fname"]
+                        )
+                        if fn_elem and contact["first_name"]:
+                            self._populate_input(self.driver, fn_elem, contact["first_name"])
+
+                        # Last Name
+                        ln_elem = self._find_input_field(
+                            self.driver, wait, ["last name", "lastname", "last_name", "lname"]
+                        )
+                        if ln_elem and contact["last_name"]:
+                            self._populate_input(self.driver, ln_elem, contact["last_name"])
+
+                        # Display Name
+                        dn_elem = self._find_input_field(
+                            self.driver, wait, ["display name", "displayname", "display_name", "name"]
+                        )
+                        if dn_elem and contact["display_name"]:
+                            self._populate_input(self.driver, dn_elem, contact["display_name"])
+
+                        if not self._sleep(0.3):
+                            break
+
+                        # 7d. Click initial save button: <button type="submit" class="btn btn-primary x-save"><i class="fa fa-save"></i></button>
+                        save_btn = self._find_save_button()
+                        if not save_btn:
+                            raise NoSuchElementException("Could not locate the 'Save' button (<button type='submit' class='btn btn-primary x-save'>).")
+
+                        self.log(f"Saving contact details for {contact['display_name']} (<button class='btn btn-primary x-save'>)...", level="INFO")
+                        self._safe_click(self.driver, save_btn)
+                        self._wait_for_page_ready(self.driver, timeout=15.0)
+
+                        if not self._sleep(0.4):
+                            break
+
+                        # 7e. If contact has a number, open <a href="/ContactNumbers/Add?ContactId=###" class="btn btn-default x-overlay"><i class="fa fa-plus"></i> Add</a>
+                        phone_number = contact.get("number", "").strip()
+                        if phone_number:
+                            self.log("Locating Add Number link (<a href='/ContactNumbers/Add...' class='btn btn-default x-overlay'>)...", level="INFO")
+                            add_num_btn = self._find_add_number_button(wait)
+
+                            if not add_num_btn:
+                                self.log("Could not locate '<a href=\"/ContactNumbers/Add...\" class=\"btn btn-default x-overlay\">' button.", level="WARNING")
+                            else:
+                                self.log("Clicking Add Number button...", level="INFO")
+                                self._safe_click(self.driver, add_num_btn)
+                                self._wait_for_page_ready(self.driver, timeout=10.0)
+
+                                # Locate Number field: <input id="Number" name="Number" ...>
+                                num_elem = None
+                                try:
+                                    num_elem = WebDriverWait(self.driver, 8).until(
+                                        lambda d: self._find_modal_number_input(wait)
+                                    )
+                                except TimeoutException:
+                                    num_elem = self._find_modal_number_input(wait)
+
+                                if num_elem:
+                                    self._populate_input(self.driver, num_elem, phone_number)
+                                    self.log(f"Entered telephone number '{phone_number}' into <input id='Number'>...", level="INFO")
+                                else:
+                                    self.log("Could not locate '<input id=\"Number\" name=\"Number\">' field.", level="WARNING")
+
+                                if not self._sleep(0.3):
+                                    break
+
+                                # Determine Type: 07XXXXXXXXX -> Mobile, non-07 -> Work
+                                clean_num = re.sub(r"[^\d+]", "", phone_number)
+                                if clean_num.startswith(("07", "+447", "447", "00447")):
+                                    target_type = "Mobile"
+                                else:
+                                    target_type = "Work"
+
+                                self.log(f"Selecting dropdown type '{target_type}' in <select id='ContactNumberTypeID'>...", level="INFO")
+                                selected = self._select_type_dropdown(self.driver, wait, target_type)
+                                if not selected:
+                                    self.log(f"Could not automatically select dropdown '{target_type}'.", level="WARNING")
+
+                                if not self._sleep(0.3):
+                                    break
+
+                                # Click Save on Number modal: scoped to modal overlay
+                                num_save_btn = self._find_modal_save_button()
+
+                                if num_save_btn:
+                                    self.log(f"Saving telephone number ({target_type}: {phone_number}) via modal save...", level="INFO")
+                                    self._safe_click(self.driver, num_save_btn)
+                                    self._wait_for_modal_backdrop_gone(timeout=6.0)
+                                    self._wait_for_page_ready(self.driver, timeout=10.0)
+                                    self.log(f"Successfully saved telephone number ({target_type}: {phone_number})", level="SUCCESS")
+                                else:
+                                    self.log("Could not locate 'Save' button for number modal.", level="WARNING")
+
+                                if not self._sleep(0.3):
+                                    break
+
+                                # Press Save again once the screen updates back to the contact form to commit final changes
+                                self.log("Screen updated. Finalizing contact details by pressing Save again...", level="INFO")
+                                final_save_btn = self._find_save_button()
+                                if final_save_btn:
+                                    self._safe_click(self.driver, final_save_btn)
+                                    self._wait_for_page_ready(self.driver, timeout=15.0)
+                                    self.log(f"Final contact save confirmed for {contact['display_name']}.", level="SUCCESS")
+
+                        # After EVERY contact save (whether with or without number), click back on Contacts link to return to list view
                         self._return_to_contacts_list(contacts_url)
-                    except Exception:
-                        pass
-                    self._sleep(0.5)
+
+                        # Real-time verification of this contact on the page
+                        is_verified = self._verify_contact_on_page(contact, contacts_url)
+                        if not is_verified:
+                            if attempt < max_retries and not self.stop_requested:
+                                self.log(f"[RETRY] Contact '{contact['display_name']}' not confirmed on attempt {attempt}. Retrying (attempt {attempt+1}/{max_retries})...", level="WARNING")
+                                self._return_to_contacts_list(contacts_url)
+                                self._sleep(0.5)
+                                continue
+                            else:
+                                halted_by_validation = True
+                                exp_path = self._export_remaining_contacts(contacts, idx - 1, csv_path)
+                                fail_msg = (
+                                    f"Real-Time Verification Failed!\n\n"
+                                    f"Contact '{contact['display_name']}' (Row {contact['row_num']}) could not be confirmed on the live portal page after creation.\n\n"
+                                    f"The importer has been halted immediately to safeguard data integrity."
+                                )
+                                if exp_path:
+                                    fail_msg += f"\n\nRemaining unimported contacts exported to:\n{exp_path}"
+                                self.log(fail_msg, level="ERROR")
+                                messagebox.showwarning("Real-Time Verification Failed", fail_msg, parent=self.root)
+                                break
+
+                        success_count += 1
+                        contact_completed = True
+                        self.log(f"Successfully completed and verified contact {idx}/{len(contacts)}: {contact['display_name']}", level="SUCCESS")
+                        break
+
+                    except Exception as ex:
+                        if attempt < max_retries and not self.stop_requested:
+                            self.log(f"[RETRY] Transient glitch on row {contact['row_num']} ({contact['display_name']}): {str(ex).splitlines()[0]}. Retrying (attempt {attempt+1}/{max_retries})...", level="WARNING")
+                            try:
+                                self._return_to_contacts_list(contacts_url)
+                            except Exception:
+                                pass
+                            self._sleep(0.5)
+                            continue
+                        else:
+                            fail_count += 1
+                            err_msg = str(ex).splitlines()[0] if str(ex) else "Unknown error"
+                            self.failed_contacts.append((contact.get("row_num", idx), contact.get("display_name", "Unknown"), err_msg))
+                            self.log(f"Error processing row {contact['row_num']} ({contact['display_name']}): {err_msg}", level="ERROR")
+                            try:
+                                self._return_to_contacts_list(contacts_url)
+                            except Exception:
+                                pass
+                            self._sleep(0.5)
+                            break
+
+                if halted_by_validation or not self._sleep(0.4):
+                    break
 
             # Step 8: Final Reconciliation & Completion
             if not self.stop_requested and not halted_by_validation:
@@ -2006,6 +2403,18 @@ class AgilicoImporterApp:
 
 
 def main():
+    # Enable crisp Per-Monitor High-DPI scaling on Windows
+    if sys.platform.startswith("win"):
+        try:
+            import ctypes
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except Exception:
+            try:
+                import ctypes
+                ctypes.windll.user32.SetProcessDPIAware()
+            except Exception:
+                pass
+
     root = tk.Tk()
     app = AgilicoImporterApp(root)
     root.mainloop()
