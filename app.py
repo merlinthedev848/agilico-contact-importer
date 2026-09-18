@@ -74,8 +74,8 @@ class AgilicoImporterApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Agilico Contact Importer - Lite")
-        self.root.geometry("980x820")
-        self.root.minsize(900, 720)
+        self.root.geometry("1000x960")
+        self.root.minsize(940, 860)
 
         # Application Icon & Logo from PyInstaller resource bundle
         self.logo_img = None
@@ -222,9 +222,9 @@ class AgilicoImporterApp:
             highlightbackground=self.COLOR_BORDER,
             highlightthickness=1,
             padx=18,
-            pady=12,
+            pady=10,
         )
-        top_card.pack(fill=tk.X, pady=(0, 12))
+        top_card.pack(fill=tk.X, pady=(0, 10))
 
         # Card 1 Title & Description
         card1_title = tk.Label(
@@ -243,7 +243,7 @@ class AgilicoImporterApp:
             fg=self.COLOR_TEXT_MUTED,
             bg=self.COLOR_CARD_BG,
         )
-        card1_desc.pack(anchor="w", pady=(2, 12))
+        card1_desc.pack(anchor="w", pady=(2, 8))
 
         # Dropzone / File Picker Box
         dropzone = tk.Frame(
