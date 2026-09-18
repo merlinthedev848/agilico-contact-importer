@@ -410,17 +410,30 @@ class AgilicoImporterApp:
             bg=self.COLOR_CARD_BG,
         ).pack(anchor="w", pady=(0, 2))
 
-        self.url_entry = tk.Entry(
+        url_wrap = tk.Frame(
             fields_frame,
+            bg="#ffffff",
+            highlightbackground="#cbd5e1",
+            highlightthickness=1,
+            padx=10,
+            pady=4,
+        )
+        url_wrap.pack(fill=tk.X, pady=(0, 6))
+
+        self.url_entry = tk.Entry(
+            url_wrap,
             textvariable=self.url_var,
             font=("Segoe UI", 9),
             bg="#ffffff",
             fg=self.COLOR_TEXT_DARK,
-            relief=tk.SOLID,
-            bd=1,
+            bd=0,
+            relief=tk.FLAT,
             highlightthickness=0,
+            insertbackground=self.COLOR_TEXT_DARK,
         )
-        self.url_entry.pack(fill=tk.X, ipady=3, pady=(0, 6))
+        self.url_entry.pack(fill=tk.X)
+        self.url_entry.bind("<FocusIn>", lambda e: url_wrap.config(highlightbackground="#00b862"))
+        self.url_entry.bind("<FocusOut>", lambda e: url_wrap.config(highlightbackground="#cbd5e1"))
 
         # Customer Username
         tk.Label(
@@ -431,17 +444,30 @@ class AgilicoImporterApp:
             bg=self.COLOR_CARD_BG,
         ).pack(anchor="w", pady=(0, 2))
 
-        self.username_entry = tk.Entry(
+        user_wrap = tk.Frame(
             fields_frame,
+            bg="#ffffff",
+            highlightbackground="#cbd5e1",
+            highlightthickness=1,
+            padx=10,
+            pady=4,
+        )
+        user_wrap.pack(fill=tk.X, pady=(0, 6))
+
+        self.username_entry = tk.Entry(
+            user_wrap,
             textvariable=self.username_var,
             font=("Segoe UI", 9),
             bg="#ffffff",
             fg=self.COLOR_TEXT_DARK,
-            relief=tk.SOLID,
-            bd=1,
+            bd=0,
+            relief=tk.FLAT,
             highlightthickness=0,
+            insertbackground=self.COLOR_TEXT_DARK,
         )
-        self.username_entry.pack(fill=tk.X, ipady=3, pady=(0, 6))
+        self.username_entry.pack(fill=tk.X)
+        self.username_entry.bind("<FocusIn>", lambda e: user_wrap.config(highlightbackground="#00b862"))
+        self.username_entry.bind("<FocusOut>", lambda e: user_wrap.config(highlightbackground="#cbd5e1"))
 
         # Customer Password with Show/Hide toggle
         tk.Label(
@@ -452,37 +478,49 @@ class AgilicoImporterApp:
             bg=self.COLOR_CARD_BG,
         ).pack(anchor="w", pady=(0, 2))
 
-        pwd_frame = tk.Frame(fields_frame, bg=self.COLOR_CARD_BG)
-        pwd_frame.pack(fill=tk.X, pady=(0, 4))
+        pwd_wrap = tk.Frame(
+            fields_frame,
+            bg="#ffffff",
+            highlightbackground="#cbd5e1",
+            highlightthickness=1,
+            padx=10,
+            pady=3,
+        )
+        pwd_wrap.pack(fill=tk.X, pady=(0, 6))
 
         self.password_entry = tk.Entry(
-            pwd_frame,
+            pwd_wrap,
             textvariable=self.password_var,
             show="•",
             font=("Segoe UI", 9),
             bg="#ffffff",
             fg=self.COLOR_TEXT_DARK,
-            relief=tk.SOLID,
-            bd=1,
+            bd=0,
+            relief=tk.FLAT,
             highlightthickness=0,
+            insertbackground=self.COLOR_TEXT_DARK,
         )
-        self.password_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=3)
+        self.password_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         self.toggle_pwd_btn = tk.Button(
-            pwd_frame,
+            pwd_wrap,
             text="👁",
             command=self._toggle_password_visibility,
             font=("Segoe UI", 8),
             bg="#ffffff",
-            fg=self.COLOR_TEXT_DARK,
-            activebackground="#e2e8f0",
-            relief=tk.SOLID,
-            bd=1,
-            padx=5,
-            pady=1,
+            fg=self.COLOR_TEXT_MUTED,
+            activebackground="#f1f5f9",
+            activeforeground=self.COLOR_TEXT_DARK,
+            relief=tk.FLAT,
+            bd=0,
+            padx=4,
+            pady=0,
             cursor="hand2",
         )
-        self.toggle_pwd_btn.pack(side=tk.RIGHT, padx=(4, 0))
+        self.toggle_pwd_btn.pack(side=tk.RIGHT)
+
+        self.password_entry.bind("<FocusIn>", lambda e: pwd_wrap.config(highlightbackground="#00b862"))
+        self.password_entry.bind("<FocusOut>", lambda e: pwd_wrap.config(highlightbackground="#cbd5e1"))
 
         # Remember Username checkbox
         self.remember_cb = tk.Checkbutton(
@@ -495,6 +533,7 @@ class AgilicoImporterApp:
             activebackground=self.COLOR_CARD_BG,
             highlightthickness=0,
             bd=0,
+            cursor="hand2",
         )
         self.remember_cb.pack(anchor="w", pady=(0, 6))
 
@@ -519,7 +558,7 @@ class AgilicoImporterApp:
             state="readonly",
             font=("Segoe UI", 9),
         )
-        self.browser_combo.pack(fill=tk.X, ipady=2, pady=(0, 8))
+        self.browser_combo.pack(fill=tk.X, ipady=3, pady=(0, 8))
 
         # Actions Row (Start / Test Login / Stop)
         actions_btn_frame = tk.Frame(card_config, bg=self.COLOR_CARD_BG)
