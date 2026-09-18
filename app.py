@@ -105,6 +105,12 @@ class AgilicoImporterApp:
         self.browser_var = tk.StringVar(value="Microsoft Edge (Default)")
         self.progress_val_var = tk.DoubleVar(value=0.0)
         self.status_detail_var = tk.StringVar(value="Ready to import")
+
+        # Live Metric Stat Badges (MSP Toolkit style)
+        self.stat_total_contacts_var = tk.StringVar(value="0")
+        self.stat_ready_contacts_var = tk.StringVar(value="0")
+        self.stat_dup_contacts_var = tk.StringVar(value="0")
+        self.stat_gdpr_status_var = tk.StringVar(value="ENFORCED")
         
         self.is_running = False
         self.stop_requested = False
@@ -161,13 +167,14 @@ class AgilicoImporterApp:
         )
 
         # Root Layout: Left Sidebar + Right Main Area
+        # Root Layout: Left Sidebar + Right Main Area
         main_container = tk.Frame(self.root, bg=self.COLOR_APP_BG)
         main_container.pack(fill=tk.BOTH, expand=True)
 
         # =========================================================================
         # 1. LEFT VERTICAL SIDEBAR (Ag-Diag Brand Navy #000033)
         # =========================================================================
-        sidebar = tk.Frame(main_container, bg=self.COLOR_SIDEBAR_BG, width=95)
+        sidebar = tk.Frame(main_container, bg=self.COLOR_SIDEBAR_BG, width=92)
         sidebar.pack(side=tk.LEFT, fill=tk.Y)
         sidebar.pack_propagate(False)
 
@@ -189,12 +196,15 @@ class AgilicoImporterApp:
             )
             logo_label.pack()
 
-        # 1b. Navigation Items Stack
+        # 1b. Navigation Items Stack (Exact MSP Toolkit vertical icon + label layout)
         nav_container = tk.Frame(sidebar, bg=self.COLOR_SIDEBAR_BG)
-        nav_container.pack(fill=tk.X, pady=(10, 0))
+        nav_container.pack(fill=tk.X, pady=(6, 0))
 
-        # Nav Item: Importer (ACTIVE with Green Stripe)
-        self._create_nav_item(nav_container, "Importer", is_active=True)
+        self._create_nav_item(nav_container, "📥", "Importer", is_active=True)
+        self._create_nav_item(nav_container, "👁", "Preview", is_active=False, command=self._open_csv_preview_modal)
+        self._create_nav_item(nav_container, "🔍", "Test Login", is_active=False, command=self._start_test_login_thread)
+        self._create_nav_item(nav_container, "📋", "Logs", is_active=False, command=self._export_log)
+        self._create_nav_item(nav_container, "❓", "Help", is_active=False, command=self._show_help_dialog)
 
         # 1c. Bottom Version Label
         version_label = tk.Label(
@@ -210,11 +220,94 @@ class AgilicoImporterApp:
         # =========================================================================
         # 2. RIGHT MAIN CONTENT AREA (#f5f6fa)
         # =========================================================================
-        content_area = tk.Frame(main_container, bg=self.COLOR_APP_BG, padx=20, pady=14)
+        content_area = tk.Frame(main_container, bg=self.COLOR_APP_BG, padx=18, pady=14)
         content_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # -------------------------------------------------------------------------
-        # CARD 1: Top Main Upload Card (Hero Card)
+        # TOP TAB BAR (Exact MSP Toolkit Pill Tabs: Net Scan / Ping Track / Probe / PCAP)
+        # -------------------------------------------------------------------------
+        tabs_frame = tk.Frame(content_area, bg=self.COLOR_APP_BG)
+        tabs_frame.pack(fill=tk.X, pady=(0, 10))
+
+        # Tab 1: Importer (Active Emerald Pill)
+        tab_importer = tk.Button(
+            tabs_frame,
+            text="Contact Importer",
+            bg=self.COLOR_GREEN,
+            fg="#ffffff",
+            activebackground=self.COLOR_GREEN_HOVER,
+            activeforeground="#ffffff",
+            font=("Segoe UI", 9, "bold"),
+            padx=18,
+            pady=6,
+            relief=tk.FLAT,
+            bd=0,
+            cursor="hand2",
+        )
+        tab_importer.pack(side=tk.LEFT, padx=(0, 8))
+
+        # Tab 2: Pre-Flight Test (White Pill)
+        tab_test = tk.Button(
+            tabs_frame,
+            text="Pre-Flight Test",
+            command=self._start_test_login_thread,
+            bg="#ffffff",
+            fg=self.COLOR_TEXT_DARK,
+            activebackground="#f1f5f9",
+            activeforeground=self.COLOR_TEXT_DARK,
+            highlightbackground="#cbd5e1",
+            highlightthickness=1,
+            font=("Segoe UI", 9),
+            padx=16,
+            pady=6,
+            relief=tk.FLAT,
+            bd=0,
+            cursor="hand2",
+        )
+        tab_test.pack(side=tk.LEFT, padx=(0, 8))
+
+        # Tab 3: CSV Inspector (White Pill)
+        tab_preview = tk.Button(
+            tabs_frame,
+            text="CSV Inspector",
+            command=self._open_csv_preview_modal,
+            bg="#ffffff",
+            fg=self.COLOR_TEXT_DARK,
+            activebackground="#f1f5f9",
+            activeforeground=self.COLOR_TEXT_DARK,
+            highlightbackground="#cbd5e1",
+            highlightthickness=1,
+            font=("Segoe UI", 9),
+            padx=16,
+            pady=6,
+            relief=tk.FLAT,
+            bd=0,
+            cursor="hand2",
+        )
+        tab_preview.pack(side=tk.LEFT, padx=(0, 8))
+
+        # Tab 4: Export Audit Log (White Pill)
+        tab_export = tk.Button(
+            tabs_frame,
+            text="Export Audit Log",
+            command=self._export_log,
+            bg="#ffffff",
+            fg=self.COLOR_TEXT_DARK,
+            activebackground="#f1f5f9",
+            activeforeground=self.COLOR_TEXT_DARK,
+            highlightbackground="#cbd5e1",
+            highlightthickness=1,
+            font=("Segoe UI", 9),
+            padx=16,
+            pady=6,
+            relief=tk.FLAT,
+            bd=0,
+            cursor="hand2",
+        )
+        tab_export.pack(side=tk.LEFT)
+
+        # -------------------------------------------------------------------------
+        # CARD 1: Hero Card with MSP Toolkit Stat Metric Cards & Dropzone
         # -------------------------------------------------------------------------
         top_card = tk.Frame(
             content_area,
@@ -222,15 +315,15 @@ class AgilicoImporterApp:
             highlightbackground=self.COLOR_BORDER,
             highlightthickness=1,
             padx=18,
-            pady=10,
+            pady=12,
         )
         top_card.pack(fill=tk.X, pady=(0, 10))
 
         # Card 1 Title & Description
         card1_title = tk.Label(
             top_card,
-            text="Contact Importer - Lite",
-            font=("Segoe UI", 13, "bold"),
+            text="Contact Importer - Lite (Direct Customer Importer)",
+            font=("Segoe UI", 12, "bold"),
             fg=self.COLOR_TEXT_DARK,
             bg=self.COLOR_CARD_BG,
         )
@@ -239,136 +332,136 @@ class AgilicoImporterApp:
         card1_desc = tk.Label(
             top_card,
             text="Safeguarded direct customer contact importer with multi-tenant lockout and real-time validation.",
-            font=("Segoe UI", 9),
+            font=("Segoe UI", 8),
             fg=self.COLOR_TEXT_MUTED,
             bg=self.COLOR_CARD_BG,
         )
-        card1_desc.pack(anchor="w", pady=(2, 8))
+        card1_desc.pack(anchor="w", pady=(2, 10))
 
-        # Dropzone / File Picker Box
-        dropzone = tk.Frame(
-            top_card,
-            bg=self.COLOR_DROPZONE_BG,
-            highlightbackground=self.COLOR_DROPZONE_BORDER,
-            highlightthickness=1,
-            padx=16,
-            pady=10,
-            cursor="hand2",
-        )
-        dropzone.pack(fill=tk.X, pady=(0, 8))
+        # 4 MSP-Toolkit Metric Badges
+        metrics_frame = tk.Frame(top_card, bg=self.COLOR_CARD_BG)
+        metrics_frame.pack(fill=tk.X, pady=(0, 10))
+        metrics_frame.columnconfigure(0, weight=1, uniform="stat")
+        metrics_frame.columnconfigure(1, weight=1, uniform="stat")
+        metrics_frame.columnconfigure(2, weight=1, uniform="stat")
+        metrics_frame.columnconfigure(3, weight=1, uniform="stat")
 
-        # Icon inside dropzone
-        dz_icon = tk.Label(
-            dropzone,
-            text="📁",
-            font=("Segoe UI", 20),
-            bg=self.COLOR_DROPZONE_BG,
-            fg=self.COLOR_TEXT_DARK,
-            cursor="hand2",
-        )
-        dz_icon.pack(pady=(0, 1))
+        # Metric 1: TOTAL CONTACTS
+        m1 = tk.Frame(metrics_frame, bg="#f8fafc", highlightbackground="#e2e8f0", highlightthickness=1, padx=12, pady=7)
+        m1.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        tk.Label(m1, text="TOTAL CONTACTS", font=("Segoe UI", 7, "bold"), fg="#64748b", bg="#f8fafc").pack(anchor="w")
+        self.lbl_stat_total = tk.Label(m1, textvariable=self.stat_total_contacts_var, font=("Segoe UI", 14, "bold"), fg=self.COLOR_TEXT_DARK, bg="#f8fafc")
+        self.lbl_stat_total.pack(anchor="w", pady=(1, 0))
 
-        dz_title = tk.Label(
-            dropzone,
-            text="Drag & Drop CSV File Here",
-            font=("Segoe UI", 11, "bold"),
-            fg=self.COLOR_TEXT_DARK,
-            bg=self.COLOR_DROPZONE_BG,
-            cursor="hand2",
-        )
-        dz_title.pack()
+        # Metric 2: READY / VALID
+        m2 = tk.Frame(metrics_frame, bg="#f0fdf4", highlightbackground="#bbf7d0", highlightthickness=1, padx=12, pady=7)
+        m2.grid(row=0, column=1, sticky="nsew", padx=(0, 6))
+        tk.Label(m2, text="ONLINE / READY", font=("Segoe UI", 7, "bold"), fg="#16a34a", bg="#f0fdf4").pack(anchor="w")
+        self.lbl_stat_ready = tk.Label(m2, textvariable=self.stat_ready_contacts_var, font=("Segoe UI", 14, "bold"), fg="#16a34a", bg="#f0fdf4")
+        self.lbl_stat_ready.pack(anchor="w", pady=(1, 0))
 
-        dz_subtitle = tk.Label(
-            dropzone,
-            text="Supports First Name, Last Name, Display Name & Number (Speed Dial auto-generated)",
-            font=("Segoe UI", 8),
-            fg=self.COLOR_TEXT_MUTED,
-            bg=self.COLOR_DROPZONE_BG,
-            cursor="hand2",
-        )
-        dz_subtitle.pack(pady=(1, 6))
+        # Metric 3: DUPLICATES / SKIPPED
+        m3 = tk.Frame(metrics_frame, bg="#fef2f2", highlightbackground="#fecaca", highlightthickness=1, padx=12, pady=7)
+        m3.grid(row=0, column=2, sticky="nsew", padx=(0, 6))
+        tk.Label(m3, text="DUPLICATES / SKIPPED", font=("Segoe UI", 7, "bold"), fg="#dc2626", bg="#fef2f2").pack(anchor="w")
+        self.lbl_stat_dup = tk.Label(m3, textvariable=self.stat_dup_contacts_var, font=("Segoe UI", 14, "bold"), fg="#dc2626", bg="#fef2f2")
+        self.lbl_stat_dup.pack(anchor="w", pady=(1, 0))
 
-        # BROWSE FILES Button (Modern flat emerald button)
-        self.browse_btn = tk.Button(
-            dropzone,
-            text="📂  BROWSE CSV FILE",
-            command=self._browse_csv,
-            bg=self.COLOR_GREEN,
-            fg="#ffffff",
-            activebackground=self.COLOR_GREEN_HOVER,
-            activeforeground="#ffffff",
+        # Metric 4: GDPR ISOLATION
+        m4 = tk.Frame(metrics_frame, bg="#eff6ff", highlightbackground="#bfdbfe", highlightthickness=1, padx=12, pady=7)
+        m4.grid(row=0, column=3, sticky="nsew")
+        tk.Label(m4, text="GDPR ISOLATION", font=("Segoe UI", 7, "bold"), fg="#2563eb", bg="#eff6ff").pack(anchor="w")
+        self.lbl_stat_gdpr = tk.Label(m4, textvariable=self.stat_gdpr_status_var, font=("Segoe UI", 11, "bold"), fg="#2563eb", bg="#eff6ff")
+        self.lbl_stat_gdpr.pack(anchor="w", pady=(3, 0))
+
+        # File Selection & Quick Action Strip (Exact MSP Toolkit Form Row style)
+        file_strip = tk.Frame(top_card, bg=self.COLOR_CARD_BG)
+        file_strip.pack(fill=tk.X, pady=(2, 6))
+
+        tk.Label(
+            file_strip,
+            text="Contacts CSV:",
             font=("Segoe UI", 9, "bold"),
-            padx=22,
-            pady=7,
+            fg=self.COLOR_TEXT_DARK,
+            bg=self.COLOR_CARD_BG,
+        ).pack(side=tk.LEFT, padx=(0, 8))
+
+        file_entry_wrap = tk.Frame(
+            file_strip,
+            bg="#ffffff",
+            highlightbackground="#cbd5e1",
+            highlightthickness=1,
+            padx=8,
+            pady=4,
+        )
+        file_entry_wrap.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+
+        self.file_entry = tk.Entry(
+            file_entry_wrap,
+            textvariable=self.file_name_display_var,
+            font=("Segoe UI", 9),
+            bg="#ffffff",
+            fg=self.COLOR_TEXT_DARK,
+            bd=0,
+            relief=tk.FLAT,
+            state="readonly",
+        )
+        self.file_entry.pack(fill=tk.X)
+
+        self.browse_btn = tk.Button(
+            file_strip,
+            text="📂  Browse CSV",
+            command=self._browse_csv,
+            bg="#ffffff",
+            fg=self.COLOR_TEXT_DARK,
+            activebackground="#f1f5f9",
+            activeforeground=self.COLOR_TEXT_DARK,
+            highlightbackground="#cbd5e1",
+            highlightthickness=1,
+            font=("Segoe UI", 8, "bold"),
+            padx=14,
+            pady=5,
             relief=tk.FLAT,
             bd=0,
             cursor="hand2",
         )
-        self.browse_btn.pack(pady=(0, 2))
-
-        # Bind click anywhere in dropzone area
-        for w in (dropzone, dz_icon, dz_title, dz_subtitle):
-            w.bind("<Button-1>", lambda e: self._browse_csv())
-            w.bind("<Enter>", lambda e: dropzone.config(bg="#f1f5f9"))
-            w.bind("<Leave>", lambda e: dropzone.config(bg=self.COLOR_DROPZONE_BG))
-
-        # Selected File Info & Progress Bar Box
-        file_status_box = tk.Frame(
-            top_card,
-            bg="#f8fafc",
-            highlightbackground=self.COLOR_BORDER,
-            highlightthickness=1,
-            padx=14,
-            pady=8,
-        )
-        file_status_box.pack(fill=tk.X)
-
-        file_header_row = tk.Frame(file_status_box, bg="#f8fafc")
-        file_header_row.pack(fill=tk.X)
-
-        self.file_name_label = tk.Label(
-            file_header_row,
-            textvariable=self.file_name_display_var,
-            font=("Segoe UI", 9, "bold"),
-            fg=self.COLOR_TEXT_DARK,
-            bg="#f8fafc",
-            anchor="w",
-        )
-        self.file_name_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.browse_btn.pack(side=tk.LEFT, padx=(0, 6))
 
         self.preview_btn = tk.Button(
-            file_header_row,
+            file_strip,
             text="👁  Preview Contacts",
             command=self._open_csv_preview_modal,
-            font=("Segoe UI", 8, "bold"),
-            bg="#e0f2fe",
+            bg="#ffffff",
             fg="#0284c7",
-            activebackground="#bae6fd",
+            activebackground="#f1f5f9",
             activeforeground="#0369a1",
+            highlightbackground="#cbd5e1",
+            highlightthickness=1,
+            font=("Segoe UI", 8, "bold"),
+            padx=14,
+            pady=5,
             relief=tk.FLAT,
             bd=0,
-            padx=12,
-            pady=4,
             cursor="hand2",
             state=tk.DISABLED,
         )
-        self.preview_btn.pack(side=tk.RIGHT)
+        self.preview_btn.pack(side=tk.LEFT)
 
-        # Green Progress Bar
+        # Progress Bar & Status Text
         self.progressbar = ttk.Progressbar(
-            file_status_box,
+            top_card,
             style="Agilico.Horizontal.TProgressbar",
             variable=self.progress_val_var,
             maximum=100,
         )
-        self.progressbar.pack(fill=tk.X, pady=(5, 3))
+        self.progressbar.pack(fill=tk.X, pady=(4, 2))
 
         self.status_detail_label = tk.Label(
-            file_status_box,
+            top_card,
             textvariable=self.status_detail_var,
             font=("Segoe UI", 8),
             fg=self.COLOR_TEXT_MUTED,
-            bg="#f8fafc",
+            bg=self.COLOR_CARD_BG,
             anchor="w",
         )
         self.status_detail_label.pack(fill=tk.X)
@@ -418,7 +511,7 @@ class AgilicoImporterApp:
         # Base URL
         tk.Label(
             fields_frame,
-            text="🌐  Portal Base URL:",
+            text="Portal Base URL:",
             font=("Segoe UI", 8, "bold"),
             fg="#334155",
             bg=self.COLOR_CARD_BG,
@@ -430,9 +523,9 @@ class AgilicoImporterApp:
             highlightbackground="#cbd5e1",
             highlightthickness=1,
             padx=10,
-            pady=5,
+            pady=4,
         )
-        url_wrap.pack(fill=tk.X, pady=(0, 6))
+        url_wrap.pack(fill=tk.X, pady=(0, 5))
 
         self.url_entry = tk.Entry(
             url_wrap,
@@ -452,7 +545,7 @@ class AgilicoImporterApp:
         # Customer Username
         tk.Label(
             fields_frame,
-            text="👤  Customer Portal Username:",
+            text="Customer Portal Username:",
             font=("Segoe UI", 8, "bold"),
             fg="#334155",
             bg=self.COLOR_CARD_BG,
@@ -464,9 +557,9 @@ class AgilicoImporterApp:
             highlightbackground="#cbd5e1",
             highlightthickness=1,
             padx=10,
-            pady=5,
+            pady=4,
         )
-        user_wrap.pack(fill=tk.X, pady=(0, 6))
+        user_wrap.pack(fill=tk.X, pady=(0, 5))
 
         self.username_entry = tk.Entry(
             user_wrap,
@@ -486,7 +579,7 @@ class AgilicoImporterApp:
         # Customer Password with Show/Hide toggle
         tk.Label(
             fields_frame,
-            text="🔒  Customer Portal Password:",
+            text="Customer Portal Password:",
             font=("Segoe UI", 8, "bold"),
             fg="#334155",
             bg=self.COLOR_CARD_BG,
@@ -500,7 +593,7 @@ class AgilicoImporterApp:
             padx=10,
             pady=4,
         )
-        pwd_wrap.pack(fill=tk.X, pady=(0, 6))
+        pwd_wrap.pack(fill=tk.X, pady=(0, 5))
 
         self.password_entry = tk.Entry(
             pwd_wrap,
@@ -549,12 +642,12 @@ class AgilicoImporterApp:
             bd=0,
             cursor="hand2",
         )
-        self.remember_cb.pack(anchor="w", pady=(0, 6))
+        self.remember_cb.pack(anchor="w", pady=(0, 4))
 
         # Web Browser
         tk.Label(
             fields_frame,
-            text="🌐  Web Browser Engine:",
+            text="Web Browser Engine:",
             font=("Segoe UI", 8, "bold"),
             fg="#334155",
             bg=self.COLOR_CARD_BG,
@@ -575,12 +668,12 @@ class AgilicoImporterApp:
         self.browser_combo.pack(fill=tk.X, ipady=3, pady=(0, 6))
 
         # ---------------------------------------------------------------------
-        # Actions Area (2-Tier Modern Action Hierarchy)
+        # Actions Row (Exact MSP Toolkit Form Actions Bar: + Add Host / Start All / Stop All)
         # ---------------------------------------------------------------------
         actions_frame = tk.Frame(card_config, bg=self.COLOR_CARD_BG)
-        actions_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=(10, 0))
+        actions_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=(8, 0))
 
-        # Row 1: Hero Primary Action (START IMPORT)
+        # Primary Action: START IMPORT (Exact match to + Add Host in MSP Toolkit)
         self.start_btn = tk.Button(
             actions_frame,
             text="▶  START IMPORT",
@@ -589,54 +682,57 @@ class AgilicoImporterApp:
             fg="#ffffff",
             activebackground=self.COLOR_GREEN_HOVER,
             activeforeground="#ffffff",
-            font=("Segoe UI", 10, "bold"),
-            pady=9,
+            font=("Segoe UI", 9, "bold"),
+            padx=16,
+            pady=6,
             relief=tk.FLAT,
             bd=0,
             cursor="hand2",
         )
-        self.start_btn.pack(fill=tk.X, pady=(0, 6))
+        self.start_btn.pack(side=tk.LEFT, padx=(0, 6))
 
-        # Row 2: Secondary Actions (TEST LOGIN + STOP)
-        sec_btn_frame = tk.Frame(actions_frame, bg=self.COLOR_CARD_BG)
-        sec_btn_frame.pack(fill=tk.X)
-        sec_btn_frame.columnconfigure(0, weight=1)
-        sec_btn_frame.columnconfigure(1, weight=1)
-
+        # Secondary Action: TEST LOGIN (Exact match to Start All in MSP Toolkit)
         self.test_login_btn = tk.Button(
-            sec_btn_frame,
-            text="🔍  TEST LOGIN",
+            actions_frame,
+            text="🔍 Test Login",
             command=self._start_test_login_thread,
-            bg="#1e293b",
-            fg="#ffffff",
-            activebackground="#334155",
-            activeforeground="#ffffff",
+            bg="#ffffff",
+            fg=self.COLOR_TEXT_DARK,
+            activebackground="#f1f5f9",
+            activeforeground=self.COLOR_TEXT_DARK,
+            highlightbackground="#cbd5e1",
+            highlightthickness=1,
             font=("Segoe UI", 8, "bold"),
-            pady=7,
+            padx=12,
+            pady=6,
             relief=tk.FLAT,
             bd=0,
             cursor="hand2",
         )
-        self.test_login_btn.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
+        self.test_login_btn.pack(side=tk.LEFT, padx=(0, 6))
 
+        # Secondary Action: STOP (Exact match to Stop All in MSP Toolkit)
         self.stop_btn = tk.Button(
-            sec_btn_frame,
-            text="⏹  STOP",
+            actions_frame,
+            text="⏹ Stop",
             command=self._stop_import,
             state=tk.DISABLED,
             bg="#f1f5f9",
             fg="#94a3b8",
             activebackground=self.COLOR_RED_HOVER,
             activeforeground="#ffffff",
+            highlightbackground="#cbd5e1",
+            highlightthickness=1,
             font=("Segoe UI", 8, "bold"),
-            pady=7,
+            padx=12,
+            pady=6,
             relief=tk.FLAT,
             bd=0,
             cursor="arrow",
         )
-        self.stop_btn.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
+        self.stop_btn.pack(side=tk.LEFT)
 
-        # CARD 3 (RIGHT): Live Activity Log Card
+        # CARD 3 (RIGHT): Live Activity Log Card (Exact MSP Toolkit Terminal Card)
         card_log = tk.Frame(
             bottom_row,
             bg=self.COLOR_CARD_BG,
@@ -664,13 +760,15 @@ class AgilicoImporterApp:
 
         tk.Button(
             log_actions,
-            text="💾 Export Log",
+            text="💾 Export",
             command=self._export_log,
             font=("Segoe UI", 8, "bold"),
-            bg="#f1f5f9",
+            bg="#ffffff",
             fg="#334155",
-            activebackground="#e2e8f0",
+            activebackground="#f1f5f9",
             activeforeground="#0f172a",
+            highlightbackground="#cbd5e1",
+            highlightthickness=1,
             relief=tk.FLAT,
             bd=0,
             padx=8,
@@ -683,10 +781,12 @@ class AgilicoImporterApp:
             text="📋 Copy",
             command=self._copy_log,
             font=("Segoe UI", 8, "bold"),
-            bg="#f1f5f9",
+            bg="#ffffff",
             fg="#334155",
-            activebackground="#e2e8f0",
+            activebackground="#f1f5f9",
             activeforeground="#0f172a",
+            highlightbackground="#cbd5e1",
+            highlightthickness=1,
             relief=tk.FLAT,
             bd=0,
             padx=8,
@@ -699,10 +799,12 @@ class AgilicoImporterApp:
             text="🗑 Clear",
             command=self._clear_log,
             font=("Segoe UI", 8, "bold"),
-            bg="#f1f5f9",
+            bg="#ffffff",
             fg="#334155",
-            activebackground="#e2e8f0",
+            activebackground="#f1f5f9",
             activeforeground="#0f172a",
+            highlightbackground="#cbd5e1",
+            highlightthickness=1,
             relief=tk.FLAT,
             bd=0,
             padx=8,
@@ -752,30 +854,73 @@ class AgilicoImporterApp:
 
         self.log("Ready. Select contacts.csv, enter customer credentials, and click 'START IMPORT'.", level="INFO")
 
-    def _create_nav_item(self, parent, label_text: str, is_active: bool = False):
-        """Creates an ag-diag style vertical sidebar item with left green active stripe and clean text."""
+    def _create_nav_item(self, parent, icon: str, label_text: str, is_active: bool = False, command=None):
+        """Creates an ag-diag style vertical sidebar item with icon above label, identical to MSP Toolkit."""
         item_bg = self.COLOR_SIDEBAR_HOVER if is_active else self.COLOR_SIDEBAR_BG
-        item_frame = tk.Frame(parent, bg=item_bg, height=44)
-        item_frame.pack(fill=tk.X, pady=2)
+        item_frame = tk.Frame(parent, bg=item_bg, height=58, cursor="hand2")
+        item_frame.pack(fill=tk.X, pady=3)
         item_frame.pack_propagate(False)
 
         if is_active:
-            # Green 4px active stripe
-            stripe = tk.Frame(item_frame, bg=self.COLOR_GREEN, width=4)
+            stripe = tk.Frame(item_frame, bg=self.COLOR_GREEN, width=3)
             stripe.pack(side=tk.LEFT, fill=tk.Y)
 
-        content = tk.Frame(item_frame, bg=item_bg)
+        content = tk.Frame(item_frame, bg=item_bg, cursor="hand2")
         content.pack(expand=True)
 
         text_color = "#ffffff" if is_active else "#94a3b8"
+        icon_lbl = tk.Label(
+            content,
+            text=icon,
+            font=("Segoe UI", 12),
+            fg=text_color,
+            bg=item_bg,
+            cursor="hand2",
+        )
+        icon_lbl.pack(pady=(0, 1))
+
         text_lbl = tk.Label(
             content,
             text=label_text,
-            font=("Segoe UI", 9, "bold" if is_active else "normal"),
+            font=("Segoe UI", 7, "bold" if is_active else "normal"),
             fg=text_color,
             bg=item_bg,
+            cursor="hand2",
         )
         text_lbl.pack()
+
+        for w in (item_frame, content, icon_lbl, text_lbl):
+            if not is_active:
+                w.bind("<Enter>", lambda e, f=item_frame, c=content, i=icon_lbl, t=text_lbl: (
+                    f.config(bg=self.COLOR_SIDEBAR_HOVER),
+                    c.config(bg=self.COLOR_SIDEBAR_HOVER),
+                    i.config(bg=self.COLOR_SIDEBAR_HOVER, fg="#ffffff"),
+                    t.config(bg=self.COLOR_SIDEBAR_HOVER, fg="#ffffff"),
+                ))
+                w.bind("<Leave>", lambda e, f=item_frame, c=content, i=icon_lbl, t=text_lbl: (
+                    f.config(bg=self.COLOR_SIDEBAR_BG),
+                    c.config(bg=self.COLOR_SIDEBAR_BG),
+                    i.config(bg=self.COLOR_SIDEBAR_BG, fg="#94a3b8"),
+                    t.config(bg=self.COLOR_SIDEBAR_BG, fg="#94a3b8"),
+                ))
+            if command:
+                w.bind("<Button-1>", lambda e, cmd=command: cmd())
+
+    def _show_help_dialog(self):
+        messagebox.showinfo(
+            "Agilico Contact Importer Help",
+            "Agilico Contact Importer - Lite (v1.0.2)\n\n"
+            "Quick Start Guide:\n"
+            "1. Select a contacts CSV file containing First Name, Last Name, Display Name, and Phone Number.\n"
+            "2. Enter Customer Portal Username and Password.\n"
+            "3. (Optional) Click 'Pre-Flight Test' to verify credentials and single-tenant GDPR isolation.\n"
+            "4. Click 'START IMPORT' to begin automated direct customer contact ingestion.\n\n"
+            "Safety & Compliance Safeguards:\n"
+            "• Strict Single-Tenant Enforcement: Multi-tenant escalation automatically aborts execution.\n"
+            "• Auto-Retry: Transient portal timeouts automatically retried once per contact.\n"
+            "• Speed Dials: Automatically generated by Agilico portal.",
+            parent=self.root,
+        )
 
     def _on_window_close(self):
         """Gracefully handle window close, prompting if import is running and quitting driver."""
@@ -888,6 +1033,9 @@ class AgilicoImporterApp:
             stats_str += f" — {dup_numbers} dup numbers"
 
         self.file_name_display_var.set(stats_str)
+        self.stat_total_contacts_var.set(str(len(contacts)))
+        self.stat_ready_contacts_var.set(str(max(0, len(contacts) - dup_numbers)))
+        self.stat_dup_contacts_var.set(str(dup_numbers))
         self.status_detail_var.set(f"Loaded {len(contacts)} contacts ready for import. Click 'Preview Contacts' to inspect.")
         self.preview_btn.config(state=tk.NORMAL)
         self.log(f"Parsed CSV '{base_name}': {len(contacts)} valid contacts detected ({dup_numbers} duplicate numbers).", level="INFO")
@@ -1130,9 +1278,9 @@ class AgilicoImporterApp:
         self.is_running = is_running
         if is_running:
             self.start_btn.config(state=tk.DISABLED, bg="#cbd5e1", fg="#94a3b8", cursor="arrow")
-            self.test_login_btn.config(state=tk.DISABLED, bg="#cbd5e1", fg="#94a3b8", cursor="arrow")
+            self.test_login_btn.config(state=tk.DISABLED, bg="#f1f5f9", fg="#94a3b8", cursor="arrow")
             self.stop_btn.config(state=tk.NORMAL, bg=self.COLOR_RED, fg="#ffffff", cursor="hand2")
-            self.browse_btn.config(state=tk.DISABLED, bg="#cbd5e1", fg="#94a3b8", cursor="arrow")
+            self.browse_btn.config(state=tk.DISABLED, bg="#f1f5f9", fg="#94a3b8", cursor="arrow")
             self.preview_btn.config(state=tk.DISABLED)
             self.url_entry.config(state=tk.DISABLED)
             self.username_entry.config(state=tk.DISABLED)
@@ -1142,9 +1290,9 @@ class AgilicoImporterApp:
             self.browser_combo.config(state=tk.DISABLED)
         else:
             self.start_btn.config(state=tk.NORMAL, bg=self.COLOR_GREEN, fg="#ffffff", cursor="hand2")
-            self.test_login_btn.config(state=tk.NORMAL, bg="#1e293b", fg="#ffffff", cursor="hand2")
+            self.test_login_btn.config(state=tk.NORMAL, bg="#ffffff", fg=self.COLOR_TEXT_DARK, cursor="hand2")
             self.stop_btn.config(state=tk.DISABLED, bg="#f1f5f9", fg="#94a3b8", cursor="arrow")
-            self.browse_btn.config(state=tk.NORMAL, bg=self.COLOR_GREEN, fg="#ffffff", cursor="hand2")
+            self.browse_btn.config(state=tk.NORMAL, bg="#ffffff", fg=self.COLOR_TEXT_DARK, cursor="hand2")
             if self.csv_path_var.get():
                 self.preview_btn.config(state=tk.NORMAL)
             self.url_entry.config(state=tk.NORMAL)
