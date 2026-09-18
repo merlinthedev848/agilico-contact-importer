@@ -74,8 +74,8 @@ class AgilicoImporterApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Agilico Contact Importer - Lite")
-        self.root.geometry("980x740")
-        self.root.minsize(900, 660)
+        self.root.geometry("980x820")
+        self.root.minsize(900, 720)
 
         # Application Icon & Logo from PyInstaller resource bundle
         self.logo_img = None
@@ -186,7 +186,7 @@ class AgilicoImporterApp:
         # 1c. Bottom Version Label
         version_label = tk.Label(
             sidebar,
-            text="v4.1.2\n(Lite)",
+            text="v1.0.2\n(Lite)",
             font=("Segoe UI", 7),
             fg=self.COLOR_TEXT_LIGHT,
             bg=self.COLOR_SIDEBAR_BG,
@@ -197,7 +197,7 @@ class AgilicoImporterApp:
         # =========================================================================
         # 2. RIGHT MAIN CONTENT AREA (#f5f6fa)
         # =========================================================================
-        content_area = tk.Frame(main_container, bg=self.COLOR_APP_BG, padx=22, pady=18)
+        content_area = tk.Frame(main_container, bg=self.COLOR_APP_BG, padx=20, pady=14)
         content_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # -------------------------------------------------------------------------
@@ -208,10 +208,10 @@ class AgilicoImporterApp:
             bg=self.COLOR_CARD_BG,
             highlightbackground=self.COLOR_BORDER,
             highlightthickness=1,
-            padx=20,
-            pady=16,
+            padx=18,
+            pady=12,
         )
-        top_card.pack(fill=tk.X, pady=(0, 16))
+        top_card.pack(fill=tk.X, pady=(0, 12))
 
         # Card 1 Title & Description
         card1_title = tk.Label(
@@ -238,22 +238,22 @@ class AgilicoImporterApp:
             bg=self.COLOR_DROPZONE_BG,
             highlightbackground=self.COLOR_DROPZONE_BORDER,
             highlightthickness=1,
-            padx=20,
-            pady=14,
+            padx=16,
+            pady=8,
             cursor="hand2",
         )
-        dropzone.pack(fill=tk.X, pady=(0, 10))
+        dropzone.pack(fill=tk.X, pady=(0, 8))
 
         # Icon inside dropzone
         dz_icon = tk.Label(
             dropzone,
             text="📄",
-            font=("Segoe UI", 20),
+            font=("Segoe UI", 18),
             bg=self.COLOR_DROPZONE_BG,
             fg=self.COLOR_TEXT_DARK,
             cursor="hand2",
         )
-        dz_icon.pack(pady=(2, 2))
+        dz_icon.pack(pady=(1, 1))
 
         dz_title = tk.Label(
             dropzone,
@@ -273,7 +273,7 @@ class AgilicoImporterApp:
             bg=self.COLOR_DROPZONE_BG,
             cursor="hand2",
         )
-        dz_subtitle.pack(pady=(2, 8))
+        dz_subtitle.pack(pady=(1, 6))
 
         # BROWSE FILES Button (Ag-Diag Green Button)
         self.browse_btn = tk.Button(
@@ -285,12 +285,12 @@ class AgilicoImporterApp:
             activebackground=self.COLOR_GREEN_HOVER,
             activeforeground="#ffffff",
             font=("Segoe UI", 9, "bold"),
-            padx=24,
-            pady=6,
+            padx=22,
+            pady=5,
             relief=tk.FLAT,
             cursor="hand2",
         )
-        self.browse_btn.pack(pady=(0, 4))
+        self.browse_btn.pack(pady=(0, 2))
 
         # Bind click anywhere in dropzone area
         for w in (dropzone, dz_icon, dz_title, dz_subtitle):
@@ -304,8 +304,8 @@ class AgilicoImporterApp:
             bg="#f8fafc",
             highlightbackground=self.COLOR_BORDER,
             highlightthickness=1,
-            padx=14,
-            pady=10,
+            padx=12,
+            pady=8,
         )
         file_status_box.pack(fill=tk.X)
 
@@ -326,7 +326,7 @@ class AgilicoImporterApp:
             variable=self.progress_val_var,
             maximum=100,
         )
-        self.progressbar.pack(fill=tk.X, pady=(6, 4))
+        self.progressbar.pack(fill=tk.X, pady=(4, 3))
 
         self.status_detail_label = tk.Label(
             file_status_box,
@@ -498,11 +498,11 @@ class AgilicoImporterApp:
             state="readonly",
             font=("Segoe UI", 9),
         )
-        self.browser_combo.pack(fill=tk.X, ipady=2, pady=(0, 10))
+        self.browser_combo.pack(fill=tk.X, ipady=2, pady=(0, 8))
 
         # Actions Row (Start / Stop)
         actions_btn_frame = tk.Frame(card_config, bg=self.COLOR_CARD_BG)
-        actions_btn_frame.pack(fill=tk.X, side=tk.BOTTOM)
+        actions_btn_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=(10, 0))
 
         self.start_btn = tk.Button(
             actions_btn_frame,
