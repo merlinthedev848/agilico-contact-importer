@@ -1,6 +1,6 @@
 @echo off
 echo ===================================================
-echo Building Agilico Contact Importer Single-File EXE
+echo Building Agilico Contact Importer - Lite Single-File EXE
 echo ===================================================
 
 echo.
@@ -20,7 +20,7 @@ pyinstaller --clean --noconfirm AgilicoContactImporter.spec
 if %ERRORLEVEL% NEQ 0 (
     echo.
     echo [RETRY] Attempting direct pyinstaller build with bundled assets...
-    pyinstaller --clean --noconfirm --onefile --noconsole --collect-all selenium --add-data "logo.png;." --add-data "logo.ico;." --icon=logo.ico --name "AgilicoContactImporter" app.py
+    pyinstaller --clean --noconfirm --onefile --noconsole --collect-all selenium --add-data "logo.png;." --add-data "logo.ico;." --icon=logo.ico --name "Agilico Contact Importer - Lite" app.py
 )
 
 if %ERRORLEVEL% NEQ 0 (
@@ -33,6 +33,6 @@ if %ERRORLEVEL% NEQ 0 (
 echo.
 echo ===================================================
 echo Build completed successfully!
-echo Executable location: dist\AgilicoContactImporter.exe
+echo Executable location: dist\Agilico Contact Importer - Lite.exe
 echo ===================================================
 pause

@@ -108,6 +108,7 @@ class AgilicoImporterApp:
         
         self.is_running = False
         self.stop_requested = False
+        self.import_thread = None
         self.log_queue = queue.Queue()
         self.driver = None
         self.failed_contacts = []
@@ -659,6 +660,11 @@ class AgilicoImporterApp:
             ):
                 return
             self.stop_requested = True
+            if self.import_thread and self.import_thread.is_alive():
+                try:
+                    self.import_thread.join(timeout=1.0)
+                except Exception:
+                    pass
 
         if self.driver:
             try:
@@ -849,12 +855,12 @@ class AgilicoImporterApp:
         self.progress_val_var.set(0)
         self.status_detail_var.set("Initializing automation workflow...")
 
-        thread = threading.Thread(
+        self.import_thread = threading.Thread(
             target=self._run_automation,
             args=(url, username, password, browser_choice, csv_path),
             daemon=True,
         )
-        thread.start()
+        self.import_thread.start()
 
     def _read_contacts_csv(self, csv_path: str):
         """Reads CSV flexibly with RFC 4180 multiline support, encoding fallbacks, and comprehensive header synonyms."""
@@ -1474,6 +1480,8 @@ class AgilicoImporterApp:
         if not self.driver:
             raise ConnectionResetError("Browser instance is no longer active.")
 
+        self._dismiss_unexpected_alert()
+
         try:
             curr_url = (self.driver.current_url or "").lower()
             if any(term in curr_url for term in ["/account/login", "/login", "/account/logoff"]):
@@ -1483,8 +1491,13 @@ class AgilicoImporterApp:
             pwd_inputs = self.driver.find_elements(By.XPATH, "//input[@type='password']")
             if any(p.is_displayed() for p in pwd_inputs):
                 raise ConnectionResetError("Customer session expired: login credentials prompt detected.")
+        except UnexpectedAlertPresentException:
+            self._dismiss_unexpected_alert()
         except WebDriverException as wde:
-            raise ConnectionResetError(f"Browser communication lost: {wde.msg}")
+            if "alert" in str(wde).lower():
+                self._dismiss_unexpected_alert()
+            else:
+                raise ConnectionResetError(f"Browser communication lost: {wde.msg}")
 
     def _return_to_contacts_list(self, contacts_url: str):
         """Clicks the Contacts navigation link / Back to List button, with direct URL fallback to guarantee list view is active."""
@@ -1521,14 +1534,14 @@ class AgilicoImporterApp:
             self.driver.get(contacts_url)
             self._wait_for_page_ready(self.driver, timeout=15.0)
 
-        self._sleep(1.0)
+        self._sleep(0.4)
 
     def _verify_contact_on_page(self, contact: dict, contacts_url: str) -> bool:
         """Real-time check on the live Contacts list page to confirm the contact exists on the portal."""
-        self.log(f"Verifying real-time presence of '{contact['display_name']}' on portal...", level="INFO")
         disp_name = (contact.get("display_name") or "").strip()
         first_name = (contact.get("first_name") or "").strip()
         last_name = (contact.get("last_name") or "").strip()
+        self.log(f"Verifying real-time presence of '{disp_name}' on portal...", level="INFO")
 
         # Locate search input on Contacts list page if available
         search_box = None
@@ -1549,12 +1562,12 @@ class AgilicoImporterApp:
             except Exception:
                 continue
 
-        # Strategy 1: Filter search box
+        # Strategy 1: Filter search box with stripped display name
         if search_box and disp_name:
             try:
                 search_box.clear()
                 search_box.send_keys(disp_name)
-                time.sleep(0.8)
+                time.sleep(0.4)
             except Exception:
                 pass
 
@@ -1562,31 +1575,30 @@ class AgilicoImporterApp:
         fn_lower = first_name.lower()
         ln_lower = last_name.lower()
 
-        found = False
-        row_xpaths = [
-            f"//table//tr[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{disp_lower}')]",
-        ]
-        if fn_lower and ln_lower:
-            row_xpaths.append(
-                f"//table//tr[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{fn_lower}') and contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{ln_lower}')]"
-            )
-
-        for rx in row_xpaths:
+        def check_table_matches():
             try:
-                elems = self.driver.find_elements(By.XPATH, rx)
-                if any(el.is_displayed() for el in elems):
-                    found = True
-                    break
+                rows = self.driver.find_elements(By.XPATH, "//table//tr")
+                for r in rows:
+                    if not r.is_displayed():
+                        continue
+                    text = (r.text or "").lower()
+                    if disp_lower in text:
+                        return True
+                    if fn_lower and ln_lower and fn_lower in text and ln_lower in text:
+                        return True
             except Exception:
-                continue
+                pass
+            return False
 
-        # Clear search box so page returns to normal
+        found = check_table_matches()
+
+        # Clear search box so subsequent operations are unhindered
         if search_box:
             try:
                 search_box.clear()
                 search_box.send_keys(Keys.CONTROL + "a")
                 search_box.send_keys(Keys.BACKSPACE)
-                time.sleep(0.4)
+                self.driver.execute_script("var el = arguments[0]; if (window.$ && $(el).length) { $(el).val('').trigger('input').trigger('change').trigger('keyup'); }", search_box)
             except Exception:
                 pass
 
@@ -1597,17 +1609,9 @@ class AgilicoImporterApp:
         # Retry once after cleanly reloading Contacts list view
         self.log(f"Contact not immediately visible. Refreshing Contacts view for verification...", level="WARNING")
         self._return_to_contacts_list(contacts_url)
-        self._sleep(1.0)
+        self._sleep(0.5)
 
-        for rx in row_xpaths:
-            try:
-                elems = self.driver.find_elements(By.XPATH, rx)
-                if any(el.is_displayed() for el in elems):
-                    found = True
-                    break
-            except Exception:
-                continue
-
+        found = check_table_matches()
         if found:
             self.log(f"Real-time verification PASSED on reload: '{disp_name}' confirmed.", level="SUCCESS")
             return True
@@ -1621,13 +1625,28 @@ class AgilicoImporterApp:
         self.status_detail_var.set("Performing final reconciliation check on portal...")
         self._return_to_contacts_list(contacts_url)
 
+        # Grab all visible text from page body for fast bulk verification
+        try:
+            page_text = self.driver.find_element(By.TAG_NAME, "body").text.lower()
+        except Exception:
+            page_text = ""
+
         verified = []
         missing = []
 
         for c in contacts:
             disp = (c.get("display_name") or "").strip()
+            fn = (c.get("first_name") or "").strip()
+            ln = (c.get("last_name") or "").strip()
             if not disp:
                 continue
+
+            # Fast check against page text first
+            if disp.lower() in page_text or (fn.lower() in page_text and ln.lower() in page_text):
+                verified.append(disp)
+                continue
+
+            # Fallback to per-contact deep verify (e.g. if table is paginated)
             is_present = self._verify_contact_on_page(c, contacts_url)
             if is_present:
                 verified.append(disp)
@@ -1681,6 +1700,13 @@ class AgilicoImporterApp:
             self.status_detail_var.set(f"Loaded {len(contacts)} contacts. Initializing {browser_choice}...")
 
             # Step 2: Initialize Web Browser (Edge, Chrome, or Firefox)
+            if self.driver:
+                try:
+                    self.driver.quit()
+                except Exception:
+                    pass
+                self.driver = None
+
             self.log("Detecting and initializing web browser...", level="INFO")
             self.driver, browser_name = self._create_browser_driver(browser_choice)
             self.log(f"Successfully launched {browser_name}.", level="SUCCESS")
@@ -1809,7 +1835,7 @@ class AgilicoImporterApp:
                     if dn_elem and contact["display_name"]:
                         self._populate_input(self.driver, dn_elem, contact["display_name"])
 
-                    if not self._sleep(1.0):
+                    if not self._sleep(0.3):
                         break
 
                     # 7d. Click initial save button: <button type="submit" class="btn btn-primary x-save"><i class="fa fa-save"></i></button>
@@ -1821,7 +1847,7 @@ class AgilicoImporterApp:
                     self._safe_click(self.driver, save_btn)
                     self._wait_for_page_ready(self.driver, timeout=15.0)
 
-                    if not self._sleep(1.0):
+                    if not self._sleep(0.4):
                         break
 
                     # 7e. If contact has a number, open <a href="/ContactNumbers/Add?ContactId=###" class="btn btn-default x-overlay"><i class="fa fa-plus"></i> Add</a>
@@ -1852,7 +1878,7 @@ class AgilicoImporterApp:
                             else:
                                 self.log("Could not locate '<input id=\"Number\" name=\"Number\">' field.", level="WARNING")
 
-                            if not self._sleep(1.0):
+                            if not self._sleep(0.3):
                                 break
 
                             # Determine Type: 07XXXXXXXXX -> Mobile, non-07 -> Work
@@ -1867,7 +1893,7 @@ class AgilicoImporterApp:
                             if not selected:
                                 self.log(f"Could not automatically select dropdown '{target_type}'.", level="WARNING")
 
-                            if not self._sleep(1.0):
+                            if not self._sleep(0.3):
                                 break
 
                             # Click Save on Number modal: scoped to modal overlay
@@ -1882,7 +1908,7 @@ class AgilicoImporterApp:
                             else:
                                 self.log("Could not locate 'Save' button for number modal.", level="WARNING")
 
-                            if not self._sleep(1.0):
+                            if not self._sleep(0.3):
                                 break
 
                             # Press Save again once the screen updates back to the contact form to commit final changes
@@ -1914,7 +1940,7 @@ class AgilicoImporterApp:
 
                     success_count += 1
                     self.log(f"Successfully completed and verified contact {idx}/{len(contacts)}: {contact['display_name']}", level="SUCCESS")
-                    if not self._sleep(1.0):
+                    if not self._sleep(0.4):
                         break
 
                 except Exception as ex:
@@ -1926,7 +1952,7 @@ class AgilicoImporterApp:
                         self._return_to_contacts_list(contacts_url)
                     except Exception:
                         pass
-                    self._sleep(1.0)
+                    self._sleep(0.5)
 
             # Step 8: Final Reconciliation & Completion
             if not self.stop_requested and not halted_by_validation:
