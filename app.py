@@ -106,6 +106,7 @@ class AgilicoImporterApp:
         self.show_password_var = tk.BooleanVar(value=False)
         self.browser_var = tk.StringVar(value="Microsoft Edge (Default)")
         self.import_limit_var = tk.StringVar(value="All Contacts")
+        self.import_speed_var = tk.StringVar(value="Safe & Steady (2.0s delay - Recommended)")
         self.progress_val_var = tk.DoubleVar(value=0.0)
         self.status_detail_var = tk.StringVar(value="Ready to import")
 
@@ -573,6 +574,32 @@ class AgilicoImporterApp:
         )
         self.limit_combo.pack(fill=tk.X, ipady=3)
 
+        # Throttling / Pacing Row: Server Safety Delay
+        speed_row = tk.Frame(fields_frame, bg=self.COLOR_CARD_BG)
+        speed_row.pack(fill=tk.X, pady=(0, 6))
+
+        tk.Label(
+            speed_row,
+            text="Import Pace / Server Safety Delay:",
+            font=("Segoe UI", 8, "bold"),
+            fg="#334155",
+            bg=self.COLOR_CARD_BG,
+        ).pack(anchor="w", pady=(0, 2))
+
+        self.speed_combo = ttk.Combobox(
+            speed_row,
+            textvariable=self.import_speed_var,
+            values=[
+                "Safe & Steady (2.0s delay - Recommended)",
+                "Gentle / High Latency (3.5s delay)",
+                "Slow & Cautious (5.0s delay)",
+                "Fast (0.8s delay)",
+            ],
+            state="readonly",
+            font=("Segoe UI", 9),
+        )
+        self.speed_combo.pack(fill=tk.X, ipady=3)
+
         # Actions Row (Packed right after form fields, no empty gap)
         actions_frame = tk.Frame(card_config, bg=self.COLOR_CARD_BG)
         actions_frame.pack(fill=tk.X, pady=(6, 0))
@@ -826,6 +853,10 @@ class AgilicoImporterApp:
                 if saved_limit:
                     self.import_limit_var.set(saved_limit)
 
+                saved_speed = data.get("import_speed", "")
+                if saved_speed:
+                    self.import_speed_var.set(saved_speed)
+
                 # Purge any legacy username/password keys from config on disk immediately
                 if "username" in data or "password" in data:
                     data.pop("username", None)
@@ -836,17 +867,31 @@ class AgilicoImporterApp:
             pass
 
     def _save_config(self):
-        """Saves only non-credential UI preferences (browser choice and import limit).
+        """Saves only non-credential UI preferences (browser choice, import limit, speed delay).
         Strict Security Safeguard: Never writes or caches usernames or passwords to disk."""
         try:
             data = {
                 "browser": self.browser_var.get().strip(),
                 "import_limit": self.import_limit_var.get().strip(),
+                "import_speed": self.import_speed_var.get().strip(),
             }
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
         except Exception:
             pass
+
+    def _get_pacing_delay(self) -> float:
+        """Returns the configured safety delay in seconds based on user speed selection (defaults to 2.0s)."""
+        val = (self.import_speed_var.get() or "").lower()
+        if "5.0" in val or "cautious" in val:
+            return 5.0
+        elif "3.5" in val or "gentle" in val or "latency" in val:
+            return 3.5
+        elif "0.8" in val or "fast" in val:
+            return 0.8
+        elif "2.0" in val or "steady" in val or "safe" in val or "recommended" in val:
+            return 2.0
+        return 2.0
 
     def _toggle_password_visibility(self):
         """Toggles masking on password entry between bullet dots and plain text."""
@@ -1541,6 +1586,7 @@ class AgilicoImporterApp:
             self.toggle_pwd_btn.config(state=tk.DISABLED)
             self.browser_combo.config(state=tk.DISABLED)
             self.limit_combo.config(state=tk.DISABLED)
+            self.speed_combo.config(state=tk.DISABLED)
         else:
             self.start_btn.config(state=tk.NORMAL, bg=self.COLOR_GREEN, fg="#ffffff", cursor="hand2")
             self.test_login_btn.config(state=tk.NORMAL, bg="#ffffff", fg=self.COLOR_TEXT_DARK, cursor="hand2")
@@ -1553,6 +1599,7 @@ class AgilicoImporterApp:
             self.toggle_pwd_btn.config(state=tk.NORMAL)
             self.browser_combo.config(state="readonly")
             self.limit_combo.config(state="normal")
+            self.speed_combo.config(state="readonly")
 
     def _stop_import(self):
         if self.is_running:
@@ -1939,18 +1986,19 @@ class AgilicoImporterApp:
         return None
 
     def _populate_input(self, driver, element, value: str):
-        """Focuses, clears, and inputs text into an input element, then fires framework events.
-        Fix #16: send_keys sets the value; JS only fires events (not re-sets the value) to avoid double-input."""
+        """Focuses, clears, and inputs text into an input element with safe pacing, then fires framework events."""
         if not element or value is None:
             return
         try:
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
-            time.sleep(0.05)
+            time.sleep(0.08)
             element.click()
             element.clear()
             element.send_keys(Keys.CONTROL + "a")
             element.send_keys(Keys.BACKSPACE)
+            time.sleep(0.05)
             element.send_keys(value)
+            time.sleep(0.08)
         except Exception:
             pass
 
@@ -1968,6 +2016,7 @@ class AgilicoImporterApp:
                 "}",
                 element,
             )
+            time.sleep(0.05)
         except Exception:
             pass
 
@@ -2781,7 +2830,8 @@ class AgilicoImporterApp:
             self.failed_contacts = []
             skipped_contacts = []
             self._last_verified_idx = 0  # Fix #8: reset verified index tracker
-            self.log("Starting contact import pipeline (real-time validation active)...", level="SUCCESS")
+            pacing_delay = self._get_pacing_delay()
+            self.log(f"Starting contact import pipeline (pacing: {pacing_delay:.1f}s safety delay, real-time validation active)...", level="SUCCESS")
 
             success_count = 0
             fail_count = 0
@@ -2884,6 +2934,8 @@ class AgilicoImporterApp:
                         self.log("Clicking 'Add' contact button...", level="INFO")
                         self._safe_click(self.driver, add_btn)
                         self._wait_for_page_ready(self.driver, timeout=15.0)
+                        if not self._sleep(max(0.4, pacing_delay * 0.2)):
+                            break
 
                         # Verify session
                         self._verify_session_alive()
@@ -2928,7 +2980,7 @@ class AgilicoImporterApp:
                         if dn_elem and contact["display_name"]:
                             self._populate_input(self.driver, dn_elem, contact["display_name"])
 
-                        if not self._sleep(0.3):
+                        if not self._sleep(max(0.4, pacing_delay * 0.2)):
                             break
 
                         # 7d. Click initial save button: <button type="submit" class="btn btn-primary x-save"><i class="fa fa-save"></i></button>
@@ -2940,7 +2992,7 @@ class AgilicoImporterApp:
                         self._safe_click(self.driver, save_btn)
                         self._wait_for_page_ready(self.driver, timeout=15.0)
 
-                        if not self._sleep(0.4):
+                        if not self._sleep(max(0.5, pacing_delay * 0.25)):
                             break
 
                         # 7e. If contact has a number, open <a href="/ContactNumbers/Add?ContactId=###" class="btn btn-default x-overlay"><i class="fa fa-plus"></i> Add</a>
@@ -2971,37 +3023,36 @@ class AgilicoImporterApp:
                                 else:
                                     self.log("Could not locate '<input id=\"Number\" name=\"Number\">' field.", level="WARNING")
 
-                                if not self._sleep(0.3):
+                                if not self._sleep(max(0.4, pacing_delay * 0.2)):
                                     break
 
                                 # Determine Type: 07XXXXXXXXX -> Mobile, non-07 -> Work
                                 clean_num = re.sub(r"[^\d+]", "", phone_number)
                                 if clean_num.startswith(("07", "+447", "447", "00447")):
                                     target_type = "Mobile"
-                                else:
-                                    target_type = "Work"
+                                set_target_type = "Work" if not clean_num.startswith(("07", "+447", "447", "00447")) else "Mobile"
 
-                                self.log(f"Selecting dropdown type '{target_type}' in <select id='ContactNumberTypeID'>...", level="INFO")
-                                selected = self._select_type_dropdown(self.driver, wait, target_type)
+                                self.log(f"Selecting dropdown type '{set_target_type}' in <select id='ContactNumberTypeID'>...", level="INFO")
+                                selected = self._select_type_dropdown(self.driver, wait, set_target_type)
                                 if not selected:
-                                    self.log(f"Could not automatically select dropdown '{target_type}'.", level="WARNING")
+                                    self.log(f"Could not automatically select dropdown '{set_target_type}'.", level="WARNING")
 
-                                if not self._sleep(0.3):
+                                if not self._sleep(max(0.4, pacing_delay * 0.2)):
                                     break
 
                                 # Click Save on Number modal: scoped to modal overlay
                                 num_save_btn = self._find_modal_save_button()
 
                                 if num_save_btn:
-                                    self.log(f"Saving telephone number ({target_type}: {phone_number}) via modal save...", level="INFO")
+                                    self.log(f"Saving telephone number ({set_target_type}: {phone_number}) via modal save...", level="INFO")
                                     self._safe_click(self.driver, num_save_btn)
                                     self._wait_for_modal_backdrop_gone(timeout=6.0)
                                     self._wait_for_page_ready(self.driver, timeout=10.0)
-                                    self.log(f"Successfully saved telephone number ({target_type}: {phone_number})", level="SUCCESS")
+                                    self.log(f"Successfully saved telephone number ({set_target_type}: {phone_number})", level="SUCCESS")
                                 else:
                                     self.log("Could not locate 'Save' button for number modal.", level="WARNING")
 
-                                if not self._sleep(0.3):
+                                if not self._sleep(max(0.5, pacing_delay * 0.25)):
                                     break
 
                                 # Press Save again once the screen updates back to the contact form to commit final changes
@@ -3014,6 +3065,7 @@ class AgilicoImporterApp:
 
                         # After EVERY contact save (whether with or without number), click back on Contacts link to return to list view
                         self._return_to_contacts_list(contacts_url)
+                        self._sleep(max(0.4, pacing_delay * 0.2))
 
                         # Real-time verification of this contact on the page
                         is_verified = self._verify_contact_on_page(contact, contacts_url)
@@ -3042,6 +3094,12 @@ class AgilicoImporterApp:
                         contact_completed = True
                         self._last_verified_idx = idx  # Fix #8: mark this contact as fully verified
                         self.log(f"Successfully completed and verified contact {idx}/{len(contacts_to_import)}: {contact['display_name']}", level="SUCCESS")
+
+                        # Safety pacing delay before next contact transaction to prevent server overload / network blips
+                        if idx < len(contacts_to_import) and not self.stop_requested:
+                            self.log(f"Safety pacing delay ({pacing_delay:.1f}s) to ensure server transaction stabilization...", level="MUTED")
+                            if not self._sleep(pacing_delay):
+                                break
                         break
 
                     except Exception as ex:
@@ -3065,7 +3123,7 @@ class AgilicoImporterApp:
                             self._sleep(0.5)
                             break
 
-                if halted_by_validation or not self._sleep(0.4):
+                if halted_by_validation:
                     break
 
             # Step 8: Final Reconciliation & Completion
