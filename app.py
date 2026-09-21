@@ -106,6 +106,7 @@ class AgilicoImporterApp:
         self.show_password_var = tk.BooleanVar(value=False)
         self.remember_username_var = tk.BooleanVar(value=True)
         self.browser_var = tk.StringVar(value="Microsoft Edge (Default)")
+        self.import_limit_var = tk.StringVar(value="All Contacts")
         self.progress_val_var = tk.DoubleVar(value=0.0)
         self.status_detail_var = tk.StringVar(value="Ready to import")
 
@@ -528,9 +529,18 @@ class AgilicoImporterApp:
         )
         self.remember_cb.pack(anchor="w", pady=(0, 3))
 
-        # Web Browser
+        # Options Row: Web Browser + Import Limit (Test Run)
+        opts_row = tk.Frame(fields_frame, bg=self.COLOR_CARD_BG)
+        opts_row.pack(fill=tk.X, pady=(0, 8))
+        opts_row.columnconfigure(0, weight=3, uniform="opt")
+        opts_row.columnconfigure(1, weight=2, uniform="opt")
+
+        # Left: Web Browser
+        b_frame = tk.Frame(opts_row, bg=self.COLOR_CARD_BG)
+        b_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+
         tk.Label(
-            fields_frame,
+            b_frame,
             text="Web Browser Engine:",
             font=("Segoe UI", 8, "bold"),
             fg="#334155",
@@ -538,7 +548,7 @@ class AgilicoImporterApp:
         ).pack(anchor="w", pady=(0, 2))
 
         self.browser_combo = ttk.Combobox(
-            fields_frame,
+            b_frame,
             textvariable=self.browser_var,
             values=[
                 "Microsoft Edge (Default)",
@@ -549,7 +559,35 @@ class AgilicoImporterApp:
             state="readonly",
             font=("Segoe UI", 9),
         )
-        self.browser_combo.pack(fill=tk.X, ipady=3, pady=(0, 8))
+        self.browser_combo.pack(fill=tk.X, ipady=3)
+
+        # Right: Import Limit / Test Run
+        l_frame = tk.Frame(opts_row, bg=self.COLOR_CARD_BG)
+        l_frame.grid(row=0, column=1, sticky="nsew")
+
+        tk.Label(
+            l_frame,
+            text="Import Limit (Test):",
+            font=("Segoe UI", 8, "bold"),
+            fg="#334155",
+            bg=self.COLOR_CARD_BG,
+        ).pack(anchor="w", pady=(0, 2))
+
+        self.limit_combo = ttk.Combobox(
+            l_frame,
+            textvariable=self.import_limit_var,
+            values=[
+                "All Contacts",
+                "1 Contact (Test)",
+                "2 Contacts (Test)",
+                "5 Contacts (Test)",
+                "10 Contacts",
+                "25 Contacts",
+                "50 Contacts",
+            ],
+            font=("Segoe UI", 9),
+        )
+        self.limit_combo.pack(fill=tk.X, ipady=3)
 
         # Actions Row (Packed right after form fields, no empty gap)
         actions_frame = tk.Frame(card_config, bg=self.COLOR_CARD_BG)
@@ -802,11 +840,14 @@ class AgilicoImporterApp:
                 saved_browser = data.get("browser", "")
                 if saved_browser:
                     self.browser_var.set(saved_browser)
+                saved_limit = data.get("import_limit", "")
+                if saved_limit:
+                    self.import_limit_var.set(saved_limit)
         except Exception:
             pass
 
     def _save_config(self):
-        """Saves current username (if Remember Username is checked) and browser choice. Never saves password."""
+        """Saves current username (if Remember Username is checked), browser choice, and import limit. Never saves password."""
         try:
             data = {}
             if self.remember_username_var.get():
@@ -814,6 +855,7 @@ class AgilicoImporterApp:
             else:
                 data["username"] = ""
             data["browser"] = self.browser_var.get().strip()
+            data["import_limit"] = self.import_limit_var.get().strip()
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
         except Exception:
@@ -1504,6 +1546,7 @@ class AgilicoImporterApp:
             self.toggle_pwd_btn.config(state=tk.DISABLED)
             self.remember_cb.config(state=tk.DISABLED)
             self.browser_combo.config(state=tk.DISABLED)
+            self.limit_combo.config(state=tk.DISABLED)
         else:
             self.start_btn.config(state=tk.NORMAL, bg=self.COLOR_GREEN, fg="#ffffff", cursor="hand2")
             self.test_login_btn.config(state=tk.NORMAL, bg="#ffffff", fg=self.COLOR_TEXT_DARK, cursor="hand2")
@@ -1516,6 +1559,7 @@ class AgilicoImporterApp:
             self.toggle_pwd_btn.config(state=tk.NORMAL)
             self.remember_cb.config(state=tk.NORMAL)
             self.browser_combo.config(state="readonly")
+            self.limit_combo.config(state="normal")
 
     def _stop_import(self):
         if self.is_running:
@@ -1630,6 +1674,8 @@ class AgilicoImporterApp:
             messagebox.showerror("Error", "Please select an existing contacts CSV file using 'BROWSE CSV FILE'.", parent=self.root)
             return
 
+        limit_choice = self.import_limit_var.get().strip()
+
         self._save_config()
         self._set_ui_state(True)
         self.stop_requested = False
@@ -1638,7 +1684,7 @@ class AgilicoImporterApp:
 
         self.import_thread = threading.Thread(
             target=self._run_automation,
-            args=(url, username, password, browser_choice, csv_path),
+            args=(url, username, password, browser_choice, csv_path, limit_choice),
             daemon=True,
         )
         self.import_thread.start()
@@ -2558,7 +2604,7 @@ class AgilicoImporterApp:
             self.log(f"Could not export remaining contacts: {ex}", level="WARNING")
             return None
 
-    def _run_automation(self, url: str, username: str, password: str, browser_choice: str, csv_path: str):
+    def _run_automation(self, url: str, username: str, password: str, browser_choice: str, csv_path: str, limit_str: str = "All Contacts"):
         self.log("Starting Agilico Contact Importer - Lite workflow...", level="INFO")
         # Fix #3: clear password from memory — we already have it in the local variable
         self.root.after(0, lambda: self.password_var.set(""))
@@ -2572,8 +2618,27 @@ class AgilicoImporterApp:
                 messagebox.showwarning("Warning", "No contacts found in the specified CSV file.", parent=self.root)
                 return
 
-            self.log(f"Found {len(contacts)} contacts to import.", level="SUCCESS")
-            self.status_detail_var.set(f"Loaded {len(contacts)} contacts. Initializing {browser_choice}...")
+            # Parse import limit (test run support)
+            limit_val = None
+            if limit_str and "all" not in limit_str.lower():
+                digits = re.search(r"\d+", limit_str)
+                if digits:
+                    limit_val = int(digits.group(0))
+
+            total_in_csv = len(contacts)
+            if limit_val and 0 < limit_val < total_in_csv:
+                contacts_to_import = contacts[:limit_val]
+                is_test_run = True
+            else:
+                contacts_to_import = contacts
+                is_test_run = False
+
+            if is_test_run:
+                self.log(f"Test Run Mode Active: Importing first {len(contacts_to_import)} of {total_in_csv} contacts from CSV.", level="INFO")
+                self.status_detail_var.set(f"Loaded {total_in_csv} contacts (Test Limit: {len(contacts_to_import)}). Initializing {browser_choice}...")
+            else:
+                self.log(f"Found {total_in_csv} contacts to import.", level="SUCCESS")
+                self.status_detail_var.set(f"Loaded {total_in_csv} contacts. Initializing {browser_choice}...")
 
             # Step 2: Initialize Web Browser (Edge, Chrome, or Firefox)
             # Fix #2: use driver lock when replacing existing driver
@@ -2621,22 +2686,26 @@ class AgilicoImporterApp:
             PER_CONTACT_TIMEOUT = 180  # 3 minutes max per contact
 
             # Step 7: Loop through each contact with auto-retry
-            for idx, contact in enumerate(contacts, start=1):
+            for idx, contact in enumerate(contacts_to_import, start=1):
                 if self.stop_requested:
                     self.log("Process stopped by user.", level="WARNING")
-                    self._export_remaining_contacts(contacts, self._last_verified_idx, csv_path)
+                    self._export_remaining_contacts(contacts_to_import, self._last_verified_idx, csv_path)
                     break
 
                 # Verify session before action
                 self._verify_session_alive()
 
-                pct = int((idx / len(contacts)) * 100)
+                pct = int((idx / len(contacts_to_import)) * 100)
                 self.progress_val_var.set(pct)
-                self.status_detail_var.set(f"Processing contact {idx} of {len(contacts)}: {contact['display_name']} ({pct}%)")
+                if is_test_run:
+                    self.status_detail_var.set(f"Test Run: Processing contact {idx} of {len(contacts_to_import)}: {contact['display_name']} ({pct}%)")
+                else:
+                    self.status_detail_var.set(f"Processing contact {idx} of {len(contacts_to_import)}: {contact['display_name']} ({pct}%)")
 
                 self.log(
-                    f"[{idx}/{len(contacts)}] Processing: {contact['display_name']} "
-                    f"({contact['first_name']} {contact['last_name']})",
+                    f"[{idx}/{len(contacts_to_import)}] Processing: {contact['display_name']} "
+                    f"({contact['first_name']} {contact['last_name']})"
+                    + (" [Test Mode]" if is_test_run else ""),
                     level="INFO",
                 )
 
@@ -2834,7 +2903,7 @@ class AgilicoImporterApp:
                             else:
                                 halted_by_validation = True
                                 # Fix #8: export from last_verified_idx (not idx-1) to avoid double-listing partial contacts
-                                exp_path = self._export_remaining_contacts(contacts, self._last_verified_idx, csv_path)
+                                exp_path = self._export_remaining_contacts(contacts_to_import, self._last_verified_idx, csv_path)
                                 fail_msg = (
                                     f"Real-Time Verification Failed!\n\n"
                                     f"Contact '{contact['display_name']}' (Row {contact['row_num']}) could not be confirmed on the live portal page after creation.\n\n"
@@ -2849,7 +2918,7 @@ class AgilicoImporterApp:
                         success_count += 1
                         contact_completed = True
                         self._last_verified_idx = idx  # Fix #8: mark this contact as fully verified
-                        self.log(f"Successfully completed and verified contact {idx}/{len(contacts)}: {contact['display_name']}", level="SUCCESS")
+                        self.log(f"Successfully completed and verified contact {idx}/{len(contacts_to_import)}: {contact['display_name']}", level="SUCCESS")
                         break
 
                     except Exception as ex:
@@ -2881,25 +2950,37 @@ class AgilicoImporterApp:
                 self.progress_val_var.set(100)
                 self.status_detail_var.set("Running final reconciliation...")
 
-                verified_all, missing_all = self._reconcile_all_contacts(contacts, contacts_url)
+                verified_all, missing_all = self._reconcile_all_contacts(contacts_to_import, contacts_url)
 
                 self.log("=" * 45, level="MUTED")
                 self.log(f"Final Reconciliation: {len(verified_all)} verified present, {len(missing_all)} missing.", level="INFO")
 
                 if not missing_all:
-                    self.status_detail_var.set(f"Complete! All {len(contacts)} contacts verified on portal.")
-                    self.log(f"Import Complete! All {len(contacts)} contacts successfully added and verified in real time.", level="SUCCESS")
-                    messagebox.showinfo(
-                        "Import Complete & Verified",
-                        f"All {len(contacts)} contacts from CSV have been successfully added and verified in real time on the customer portal!",
-                        parent=self.root,
-                    )
+                    if is_test_run:
+                        self.status_detail_var.set(f"✓ Test Run Complete! All {len(contacts_to_import)} test contacts verified.")
+                        self.log(f"Test Run Complete! Successfully imported and verified {len(contacts_to_import)} contact(s) on the portal.", level="SUCCESS")
+                        messagebox.showinfo(
+                            "Test Run Successful",
+                            f"✓ Test Run Completed Successfully!\n\n"
+                            f"Created and verified {len(contacts_to_import)} of {total_in_csv} contacts on the live customer portal.\n\n"
+                            f"The remaining {total_in_csv - len(contacts_to_import)} contacts in the CSV were untouched.\n\n"
+                            f"You are now ready to run the full import by setting Import Limit to 'All Contacts'.",
+                            parent=self.root,
+                        )
+                    else:
+                        self.status_detail_var.set(f"Complete! All {total_in_csv} contacts verified on portal.")
+                        self.log(f"Import Complete! All {total_in_csv} contacts successfully added and verified in real time.", level="SUCCESS")
+                        messagebox.showinfo(
+                            "Import Complete & Verified",
+                            f"All {total_in_csv} contacts from CSV have been successfully added and verified in real time on the customer portal!",
+                            parent=self.root,
+                        )
                 else:
                     self.status_detail_var.set(f"Completed with {len(missing_all)} missing during final check.")
                     missing_str = "\n".join([f"• {m}" for m in missing_all[:10]])
                     messagebox.showwarning(
                         "Import Complete - Reconciliation Discrepancy",
-                        f"Processed {len(contacts)} contacts, but {len(missing_all)} could not be confirmed during the final portal sweep:\n\n{missing_str}",
+                        f"Processed {len(contacts_to_import)} contacts, but {len(missing_all)} could not be confirmed during the final portal sweep:\n\n{missing_str}",
                         parent=self.root,
                     )
             elif halted_by_validation:
