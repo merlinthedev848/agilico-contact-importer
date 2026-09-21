@@ -1,63 +1,75 @@
-# Agilico Contact Importer
+# Agilico Contact Importer - Lite
 
-A standalone desktop application built with Python and Tkinter that uses Selenium to automate batch creation of contacts in the Agilico web portal from a CSV file.
-
-## Features
-
-- **Graphical User Interface (Tkinter)**:
-  - File picker to select your target `contacts.csv`.
-  - Agilico Base URL configuration field.
-  - Interactive "Start Import" and "Stop / Cancel" controls.
-  - Live, color-coded status and activity log window.
-- **Selenium Automation**:
-  - Chrome launch with automatic driver management via `webdriver-manager`.
-  - Login checkpoint dialog allowing manual authentication and navigation to the Contacts list.
-  - Resilient element matching for `First Name`, `Last Name`, `Display Name`, and `Speed Dial` fields.
-  - Automatic clicking of `Add` (`//a[contains(., 'Add')] | //button[contains(., 'Add')]`) and `Save` (`.x-save` / `//button[contains(@class, 'x-save')]`).
-- **One-Click Build**:
-  - `build.bat` automatically installs dependencies and compiles the application into a single `.exe` using PyInstaller.
+A safeguarded standalone Windows desktop application built with Python and Tkinter that uses Selenium browser automation to import contacts in batch into the Agilico Customer Portal from CSV files.
 
 ---
 
-## CSV Format
+## 🌟 Key Features
 
-The application expects a CSV file containing the following columns:
+- **Modern MSP-Themed UI**:
+  - Clean card-based design with branded navigation, live stat metric badges (`TOTAL CONTACTS`, `VALID / UNIQUE`, `DUPLICATES / SKIPPED`, `GDPR ISOLATION`).
+  - Integrated **👁 CSV Inspector** for pre-flight table review, duplicate phone detection, and mobile/work categorization.
+  - High-contrast activity and diagnostics log with timestamped entries, color tags, and audit log export (`💾 Export`).
+- **Safeguarded Authentication & GDPR Compliance**:
+  - Direct customer portal authentication (`https://customerportal.hp2k.co.uk/`).
+  - **GDPR Multi-Tenant Lockout Safeguard**: Proactively detects and blocks accounts with multi-tenant switcher permissions (`/Account/ChangeTenant`) to eliminate cross-tenant data leakage risks.
+  - **Pre-Flight Test Login (`🔍 Test Login`)**: Validates customer credentials and verifies single-tenant isolation before executing any imports.
+- **Multi-Browser Support**:
+  - Microsoft Edge (Default), Google Chrome, and Mozilla Firefox with automated anti-detection and fallback recovery.
+- **Resilient Automation Pipeline**:
+  - Two-pass contact creation: Contact Details form creation followed by modal telephone number creation (`ContactNumbers/Add`).
+  - Automatic number classification (Mobile `07...` vs Work landline).
+  - 5-character minimum padding for display names.
+  - Real-time portal verification after each contact creation with automatic retry.
+  - Unimported contacts export (`unprocessed_contacts_*.csv`) if stopped or halted.
 
+---
+
+## 📁 CSV Format
+
+The importer supports standard RFC 4180 CSVs, tab-separated values, and handles common encoding formats (UTF-8, UTF-8-BOM, CP1252, etc.).
+
+Header names are matched flexibly and case-insensitively:
+- **First Name**: `First Name`, `First`, `Forename`, `Given`, `FName`
+- **Last Name**: `Last Name`, `Last`, `Surname`, `Family`, `LName`
+- **Display Name**: `Display Name`, `Full Name`, `Contact Name`, `Contact` *(Auto-generated from First + Last if omitted)*
+- **Number**: `Number`, `Phone`, `Mobile`, `Tel`, `Telephone`, `Direct`, `Cell`
+
+### Example:
 ```csv
-First Name,Last Name,Display Name,Speed Dial
-John,Doe,John Doe,101
-Jane,Smith,Jane Smith,102
+First Name,Last Name,Display Name,Number
+Jane,Smith,Jane Smith,07123456789
+John,Doe,John Doe,01234567890
 ```
 
-*(Column headers are matched flexibly and are case-insensitive).*
-
 ---
 
-## How to Run from Source
+## 💻 How to Run from Source
 
-1. **Install Dependencies**:
-   ```bash
-   pip install selenium webdriver-manager pyinstaller
+1. **Activate Virtual Environment**:
+   ```powershell
+   .venv\Scripts\Activate.ps1
    ```
-2. **Run the App**:
+2. **Install Dependencies**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. **Launch Application**:
    ```bash
    python app.py
    ```
 
 ---
 
-## How to Build the Standalone `.exe`
+## 📦 How to Build Standalone Executable
 
-Double-click `build.bat` or run:
-```bat
-build.bat
+To compile into a single portable `.exe` with embedded icons and assets:
+
+```powershell
+.venv\Scripts\pyinstaller.exe --clean --noconfirm AgilicoContactImporter.spec
 ```
 
-This runs:
-1. `pip install selenium webdriver-manager pyinstaller`
-2. `pyinstaller --onefile --noconsole app.py`
-
-The compiled executable will be located at:
+The output standalone binary is located at:
 ```
-dist\app.exe
+dist/Agilico Contact Importer - Lite.exe
 ```
