@@ -104,7 +104,6 @@ class AgilicoImporterApp:
         self.username_var = tk.StringVar(value="")
         self.password_var = tk.StringVar(value="")
         self.show_password_var = tk.BooleanVar(value=False)
-        self.remember_username_var = tk.BooleanVar(value=True)
         self.browser_var = tk.StringVar(value="Microsoft Edge (Default)")
         self.import_limit_var = tk.StringVar(value="All Contacts")
         self.progress_val_var = tk.DoubleVar(value=0.0)
@@ -514,21 +513,6 @@ class AgilicoImporterApp:
         self.password_entry.bind("<FocusIn>", lambda e: pwd_wrap.config(highlightbackground="#00b862", highlightthickness=2))
         self.password_entry.bind("<FocusOut>", lambda e: pwd_wrap.config(highlightbackground="#cbd5e1", highlightthickness=1))
 
-        # Remember Username checkbox
-        self.remember_cb = tk.Checkbutton(
-            fields_frame,
-            text="Remember Username",
-            variable=self.remember_username_var,
-            font=("Segoe UI", 8),
-            bg=self.COLOR_CARD_BG,
-            fg="#334155",
-            activebackground=self.COLOR_CARD_BG,
-            highlightthickness=0,
-            bd=0,
-            cursor="hand2",
-        )
-        self.remember_cb.pack(anchor="w", pady=(0, 3))
-
         # Options Row: Web Browser + Import Limit (Test Run)
         opts_row = tk.Frame(fields_frame, bg=self.COLOR_CARD_BG)
         opts_row.pack(fill=tk.X, pady=(0, 8))
@@ -829,33 +813,36 @@ class AgilicoImporterApp:
         self.root.destroy()
 
     def _load_saved_config(self):
-        """Loads saved username and browser settings from JSON config file if present."""
+        """Loads non-credential UI preferences (browser choice, import limit) from JSON config file.
+        Strict Security Safeguard: Never caches or loads usernames or passwords."""
         try:
             if os.path.exists(self.config_path):
                 with open(self.config_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                saved_user = data.get("username", "")
-                if saved_user:
-                    self.username_var.set(saved_user)
                 saved_browser = data.get("browser", "")
                 if saved_browser:
                     self.browser_var.set(saved_browser)
                 saved_limit = data.get("import_limit", "")
                 if saved_limit:
                     self.import_limit_var.set(saved_limit)
+
+                # Purge any legacy username/password keys from config on disk immediately
+                if "username" in data or "password" in data:
+                    data.pop("username", None)
+                    data.pop("password", None)
+                    with open(self.config_path, "w", encoding="utf-8") as f:
+                        json.dump(data, f, indent=2)
         except Exception:
             pass
 
     def _save_config(self):
-        """Saves current username (if Remember Username is checked), browser choice, and import limit. Never saves password."""
+        """Saves only non-credential UI preferences (browser choice and import limit).
+        Strict Security Safeguard: Never writes or caches usernames or passwords to disk."""
         try:
-            data = {}
-            if self.remember_username_var.get():
-                data["username"] = self.username_var.get().strip()
-            else:
-                data["username"] = ""
-            data["browser"] = self.browser_var.get().strip()
-            data["import_limit"] = self.import_limit_var.get().strip()
+            data = {
+                "browser": self.browser_var.get().strip(),
+                "import_limit": self.import_limit_var.get().strip(),
+            }
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
         except Exception:
@@ -1544,7 +1531,6 @@ class AgilicoImporterApp:
             self.username_entry.config(state=tk.DISABLED)
             self.password_entry.config(state=tk.DISABLED)
             self.toggle_pwd_btn.config(state=tk.DISABLED)
-            self.remember_cb.config(state=tk.DISABLED)
             self.browser_combo.config(state=tk.DISABLED)
             self.limit_combo.config(state=tk.DISABLED)
         else:
@@ -1557,7 +1543,6 @@ class AgilicoImporterApp:
             self.username_entry.config(state=tk.NORMAL)
             self.password_entry.config(state=tk.NORMAL)
             self.toggle_pwd_btn.config(state=tk.NORMAL)
-            self.remember_cb.config(state=tk.NORMAL)
             self.browser_combo.config(state="readonly")
             self.limit_combo.config(state="normal")
 
@@ -1595,6 +1580,8 @@ class AgilicoImporterApp:
 
     def _run_test_login(self, url: str, username: str, password: str, browser_choice: str):
         """Performs pre-flight authentication and GDPR tenant lockout verification without importing contacts."""
+        # Zero out password from GUI memory immediately
+        self.root.after(0, lambda: self.password_var.set(""))
         driver = None
         try:
             self.log("=" * 60, level="MUTED")
