@@ -888,36 +888,37 @@ class AgilicoImporterApp:
                 level="WARNING",
             )
 
-        seen_numbers = set()
-        seen_names = set()
-        dup_numbers = 0
-        dup_names = 0
+        seen_contacts = set()
+        dup_contacts = 0
         no_number_count = 0  # Fix #5: track contacts missing a phone number
         for c in contacts:
+            fn = (c.get("first_name") or "").strip().lower()
+            ln = (c.get("last_name") or "").strip().lower()
+            dn = (c.get("display_name") or "").strip().lower()
             num = re.sub(r"[^\d+]", "", c.get("number", ""))
-            name = (c.get("display_name") or "").strip().lower()
-            if num:
-                if num in seen_numbers:
-                    dup_numbers += 1
-                seen_numbers.add(num)
+
+            if not num:
+                no_number_count += 1
+
+            # Only count as duplicate if first name, last name, display name, and number ALL match
+            # This allows distinct family members / colleagues sharing a telephone number to be imported smoothly.
+            contact_key = (fn, ln, dn, num)
+            if contact_key in seen_contacts:
+                dup_contacts += 1
             else:
-                no_number_count += 1  # Fix #5: count contacts with no phone number
-            if name:
-                if name in seen_names:
-                    dup_names += 1
-                seen_names.add(name)
+                seen_contacts.add(contact_key)
 
         stats_str = f"📄 {base_name} ({len(contacts)} contacts)"
-        if dup_numbers > 0:
-            stats_str += f" — {dup_numbers} dup numbers"
+        if dup_contacts > 0:
+            stats_str += f" — {dup_contacts} duplicate entries"
         if no_number_count > 0:
             stats_str += f" — {no_number_count} no number"
 
         self.file_name_display_var.set(stats_str)
         self.stat_total_contacts_var.set(str(len(contacts)))
-        self.stat_ready_contacts_var.set(str(max(0, len(contacts) - dup_numbers)))
-        self.stat_dup_contacts_var.set(str(dup_numbers))
-        self.status_detail_var.set(f"Loaded {len(contacts)} contacts. {no_number_count} missing number. Click 'CSV Inspector' to review.")
+        self.stat_ready_contacts_var.set(str(max(0, len(contacts) - dup_contacts)))
+        self.stat_dup_contacts_var.set(str(dup_contacts))
+        self.status_detail_var.set(f"Loaded {len(contacts)} contacts. {dup_contacts} duplicate entries. {no_number_count} missing number. Click 'CSV Inspector' to review.")
         self.preview_btn.config(state=tk.NORMAL)
 
         # Fix #5: log a clear warning about no-number contacts
@@ -926,7 +927,7 @@ class AgilicoImporterApp:
                 f"Warning: {no_number_count} contact(s) have no phone number and will be imported as name-only.",
                 level="WARNING",
             )
-        self.log(f"Parsed CSV '{base_name}': {len(contacts)} contacts ({dup_numbers} duplicate numbers, {no_number_count} missing number).", level="INFO")
+        self.log(f"Parsed CSV '{base_name}': {len(contacts)} contacts ({dup_contacts} duplicate entries, {no_number_count} missing number).", level="INFO")
 
     def _save_contacts_to_csv(self, csv_path: str, contacts: list, parent=None) -> bool:
         """Saves current contact list back to CSV with automatic .bak backup and Excel lock handling."""
@@ -1223,31 +1224,38 @@ class AgilicoImporterApp:
 
         def refresh_table():
             tree.delete(*tree.get_children())
-            seen_nums = set()
+            seen_identities = set()
             dup_count = 0
             no_num_count = 0
 
-            # First pass: count duplicates
-            num_counts = {}
+            # Count exact duplicate records (same first name, last name, display name, and number)
+            record_counts = {}
             for c in contacts:
+                fn = (c.get("first_name") or "").strip().lower()
+                ln = (c.get("last_name") or "").strip().lower()
+                dn = (c.get("display_name") or "").strip().lower()
                 raw_phone = (c.get("number") or "").strip()
                 clean_num = re.sub(r"[^\d+]", "", raw_phone)
-                if clean_num:
-                    num_counts[clean_num] = num_counts.get(clean_num, 0) + 1
+                k = (fn, ln, dn, clean_num)
+                record_counts[k] = record_counts.get(k, 0) + 1
 
             for idx, c in enumerate(contacts, start=1):
                 c["row_num"] = idx
+                fn = (c.get("first_name") or "").strip().lower()
+                ln = (c.get("last_name") or "").strip().lower()
+                dn = (c.get("display_name") or "").strip().lower()
                 phone = (c.get("number") or "").strip()
                 clean_num = re.sub(r"[^\d+]", "", phone)
 
+                k = (fn, ln, dn, clean_num)
                 is_dup = False
-                if clean_num:
-                    if num_counts.get(clean_num, 0) > 1:
-                        is_dup = True
-                        if clean_num in seen_nums:
-                            dup_count += 1
-                        seen_nums.add(clean_num)
-                else:
+                if record_counts.get(k, 0) > 1:
+                    is_dup = True
+                    if k in seen_identities:
+                        dup_count += 1
+                    seen_identities.add(k)
+
+                if not clean_num:
                     no_num_count += 1
 
                 detected_type = "—"
@@ -1273,7 +1281,7 @@ class AgilicoImporterApp:
                     tags=(tag,),
                 )
 
-            status_text = f"Total Contacts: {len(contacts)}  |  Duplicate Numbers: {dup_count}  |  No Number: {no_num_count}"
+            status_text = f"Total Contacts: {len(contacts)}  |  Duplicate Entries: {dup_count}  |  No Number: {no_num_count}"
             status_lbl.config(text=status_text)
 
         def on_edit_selected():
@@ -2553,8 +2561,6 @@ class AgilicoImporterApp:
         disp_name = (contact.get("display_name") or "").strip()
         first_name = (contact.get("first_name") or "").strip()
         last_name = (contact.get("last_name") or "").strip()
-        phone_num = (contact.get("number") or "").strip()
-        clean_phone = re.sub(r"[^\d+]", "", phone_num)
 
         if not disp_name and not (first_name and last_name):
             return False
@@ -2575,8 +2581,6 @@ class AgilicoImporterApp:
                 if disp_lower and disp_lower in row_text:
                     return True
                 if fn_lower and ln_lower and fn_lower in row_text and ln_lower in row_text:
-                    return True
-                if clean_phone and len(clean_phone) >= 7 and clean_phone in re.sub(r"[^\d+]", "", row_text):
                     return True
 
             # 2. If table has search box, perform quick filter search
