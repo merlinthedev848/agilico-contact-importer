@@ -2480,87 +2480,134 @@ class AgilicoImporterApp:
 
         self._sleep(0.4)
 
-    def _verify_contact_on_page(self, contact: dict, contacts_url: str) -> bool:
-        """Real-time check on the live Contacts list page to confirm the contact exists on the portal."""
-        disp_name = (contact.get("display_name") or "").strip()
-        first_name = (contact.get("first_name") or "").strip()
-        last_name = (contact.get("last_name") or "").strip()
-        self.log(f"Verifying real-time presence of '{disp_name}' on portal...", level="INFO")
-
-        # Locate search input on Contacts list page if available
-        search_box = None
-        for sx in [
+    def _find_contacts_search_box(self):
+        """Finds the active search or filter input on the Contacts list page."""
+        search_xpaths = [
             "//input[@type='search']",
-            "//input[contains(@placeholder, 'Search') or contains(@placeholder, 'Filter')]",
+            "//input[contains(@aria-controls, 'contact') or contains(@aria-controls, 'Contact')]",
+            "//input[contains(@placeholder, 'Search') or contains(@placeholder, 'Filter') or contains(@placeholder, 'search') or contains(@placeholder, 'filter')]",
+            "//div[contains(@class, 'dataTables_filter')]//input",
             "//input[contains(@class, 'search') or contains(@class, 'filter')]",
-            "//input[contains(@class, 'form-control')]",
-        ]:
+            "//input[contains(@class, 'form-control') and not(@type='hidden') and not(@type='password')]",
+        ]
+        for sx in search_xpaths:
             try:
                 elems = self.driver.find_elements(By.XPATH, sx)
                 for el in elems:
                     if el.is_displayed() and el.is_enabled():
-                        search_box = el
-                        break
-                if search_box:
-                    break
+                        return el
             except Exception:
                 continue
+        return None
 
-        # Strategy 1: Filter search box with stripped display name
-        if search_box and disp_name:
-            try:
-                search_box.clear()
-                search_box.send_keys(disp_name)
-                time.sleep(0.4)
-            except Exception:
-                pass
+    def _search_portal_for_contact(self, contact: dict) -> bool:
+        """Searches the portal contact table for a specific contact using filter search and row scanning."""
+        disp_name = (contact.get("display_name") or "").strip()
+        first_name = (contact.get("first_name") or "").strip()
+        last_name = (contact.get("last_name") or "").strip()
+
+        if not disp_name and not (first_name and last_name):
+            return False
 
         disp_lower = disp_name.lower()
         fn_lower = first_name.lower()
         ln_lower = last_name.lower()
+        search_query = disp_name if disp_name else f"{first_name} {last_name}".strip()
 
-        def check_table_matches():
-            try:
-                rows = self.driver.find_elements(By.XPATH, "//table//tr")
-                for r in rows:
-                    if not r.is_displayed():
-                        continue
-                    text = (r.text or "").lower()
-                    if disp_lower in text:
-                        return True
-                    if fn_lower and ln_lower and fn_lower in text and ln_lower in text:
-                        return True
-            except Exception:
-                pass
-            return False
+        search_box = self._find_contacts_search_box()
+        found = False
 
-        found = check_table_matches()
-
-        # Clear search box so subsequent operations are unhindered
-        if search_box:
-            try:
+        try:
+            if search_box and search_query:
+                # 1. Clear search box
                 search_box.clear()
                 search_box.send_keys(Keys.CONTROL + "a")
                 search_box.send_keys(Keys.BACKSPACE)
-                self.driver.execute_script("var el = arguments[0]; if (window.$ && $(el).length) { $(el).val('').trigger('input').trigger('change').trigger('keyup'); }", search_box)
-            except Exception:
-                pass
+                self.driver.execute_script(
+                    "var el = arguments[0]; if (window.$ && $(el).length) { $(el).val('').trigger('input').trigger('change').trigger('keyup'); }",
+                    search_box,
+                )
+                time.sleep(0.15)
+
+                # 2. Type search query
+                search_box.send_keys(search_query)
+                self.driver.execute_script(
+                    "var el = arguments[0]; if (window.$ && $(el).length) { $(el).trigger('input').trigger('change').trigger('keyup'); }",
+                    search_box,
+                )
+                time.sleep(0.4)
+
+                # 3. Check filtered table rows
+                rows = self.driver.find_elements(By.XPATH, "//table//tbody//tr | //table//tr")
+                for r in rows:
+                    if not r.is_displayed():
+                        continue
+                    row_text = (r.text or "").lower()
+                    if not row_text or "no data" in row_text or "no matching" in row_text:
+                        continue
+                    if disp_lower and disp_lower in row_text:
+                        found = True
+                        break
+                    if fn_lower and ln_lower and fn_lower in row_text and ln_lower in row_text:
+                        found = True
+                        break
+
+                # 4. Clean up search box so subsequent operations are unhindered
+                search_box.clear()
+                search_box.send_keys(Keys.CONTROL + "a")
+                search_box.send_keys(Keys.BACKSPACE)
+                self.driver.execute_script(
+                    "var el = arguments[0]; if (window.$ && $(el).length) { $(el).val('').trigger('input').trigger('change').trigger('keyup'); }",
+                    search_box,
+                )
+                time.sleep(0.2)
+
+            else:
+                # Fallback: scan currently visible table rows
+                rows = self.driver.find_elements(By.XPATH, "//table//tbody//tr | //table//tr")
+                for r in rows:
+                    if not r.is_displayed():
+                        continue
+                    row_text = (r.text or "").lower()
+                    if not row_text or "no data" in row_text or "no matching" in row_text:
+                        continue
+                    if disp_lower and disp_lower in row_text:
+                        found = True
+                        break
+                    if fn_lower and ln_lower and fn_lower in row_text and ln_lower in row_text:
+                        found = True
+                        break
+
+        except Exception:
+            pass
+
+        return found
+
+    def _verify_contact_on_page(self, contact: dict, contacts_url: str) -> bool:
+        """Post-creation check on the live Contacts list page to search and confirm the contact was successfully added."""
+        disp_name = (contact.get("display_name") or "").strip()
+        first_name = (contact.get("first_name") or "").strip()
+        last_name = (contact.get("last_name") or "").strip()
+        query_name = disp_name if disp_name else f"{first_name} {last_name}".strip()
+
+        self.log(f"Post-creation: Searching portal to verify '{query_name}' has been added...", level="INFO")
+        found = self._search_portal_for_contact(contact)
 
         if found:
-            self.log(f"Real-time verification PASSED: '{disp_name}' confirmed on portal.", level="SUCCESS")
+            self.log(f"✓ Real-time verification PASSED: '{query_name}' confirmed active on portal.", level="SUCCESS")
             return True
 
-        # Retry once after cleanly reloading Contacts list view
-        self.log(f"Contact not immediately visible. Refreshing Contacts view for verification...", level="WARNING")
+        # Retry once after reloading Contacts list view
+        self.log(f"Contact '{query_name}' not immediately visible. Refreshing Contacts view for verification...", level="WARNING")
         self._return_to_contacts_list(contacts_url)
-        self._sleep(0.5)
+        self._sleep(0.6)
 
-        found = check_table_matches()
+        found = self._search_portal_for_contact(contact)
         if found:
-            self.log(f"Real-time verification PASSED on reload: '{disp_name}' confirmed.", level="SUCCESS")
+            self.log(f"✓ Real-time verification PASSED on reload: '{query_name}' confirmed active on portal.", level="SUCCESS")
             return True
 
-        self.log(f"Real-time verification FAILED: '{disp_name}' was NOT detected on portal.", level="ERROR")
+        self.log(f"❌ Real-time verification FAILED: '{query_name}' was NOT detected on portal.", level="ERROR")
         return False
 
     def _reconcile_all_contacts(self, contacts: list, contacts_url: str):
@@ -2569,8 +2616,7 @@ class AgilicoImporterApp:
         self.status_detail_var.set("Performing final reconciliation check on portal...")
         self._return_to_contacts_list(contacts_url)
 
-        # Fix #4: scope text scan to contact table rows only, not full body.text
-        # body.text causes false-positives from nav/breadcrumbs/buttons containing name fragments.
+        # Scoped text scan to contact table rows only
         try:
             table_rows = self.driver.find_elements(By.XPATH, "//table//tr")
             table_text = " ".join(
@@ -2606,66 +2652,24 @@ class AgilicoImporterApp:
         return verified, missing
 
     def _check_contact_exists_on_portal(self, contact: dict, contacts_url: str) -> bool:
-        """Pre-check on the live contacts list to see if this contact already exists prior to creating."""
+        """Pre-check on the live contacts list to search and confirm if this contact already exists prior to creating."""
         disp_name = (contact.get("display_name") or "").strip()
         first_name = (contact.get("first_name") or "").strip()
         last_name = (contact.get("last_name") or "").strip()
+        query_name = disp_name if disp_name else f"{first_name} {last_name}".strip()
 
-        if not disp_name and not (first_name and last_name):
+        if not query_name:
             return False
 
-        try:
-            # 1. Fast check across currently visible table rows
-            rows = self.driver.find_elements(By.XPATH, "//table//tbody//tr")
-            disp_lower = disp_name.lower()
-            fn_lower = first_name.lower()
-            ln_lower = last_name.lower()
+        self.log(f"Pre-check: Searching portal for '{query_name}' before adding to ensure it does not already exist...", level="INFO")
+        exists = self._search_portal_for_contact(contact)
 
-            for r in rows:
-                if not r.is_displayed():
-                    continue
-                row_text = (r.text or "").lower()
-                if not row_text or "no data" in row_text or "no matching" in row_text:
-                    continue
-                if disp_lower and disp_lower in row_text:
-                    return True
-                if fn_lower and ln_lower and fn_lower in row_text and ln_lower in row_text:
-                    return True
-
-            # 2. If table has search box, perform quick filter search
-            search_boxes = self.driver.find_elements(By.XPATH, "//input[@type='search' or contains(@aria-controls, 'contact')]")
-            search_box = next((s for s in search_boxes if s.is_displayed() and s.is_enabled()), None)
-
-            if search_box and disp_name:
-                search_box.clear()
-                search_box.send_keys(disp_name)
-                time.sleep(0.3)
-
-                filtered_rows = self.driver.find_elements(By.XPATH, "//table//tbody//tr")
-                for r in filtered_rows:
-                    if not r.is_displayed():
-                        continue
-                    r_text = (r.text or "").lower()
-                    if not r_text or "no data" in r_text or "no matching" in r_text:
-                        continue
-                    if disp_lower in r_text or (fn_lower and ln_lower and fn_lower in r_text and ln_lower in r_text):
-                        # Reset search box
-                        search_box.clear()
-                        search_box.send_keys(Keys.CONTROL + "a")
-                        search_box.send_keys(Keys.BACKSPACE)
-                        self.driver.execute_script("var el = arguments[0]; if (window.$ && $(el).length) { $(el).val('').trigger('input').trigger('change').trigger('keyup'); }", search_box)
-                        return True
-
-                # Clear search box back to normal
-                search_box.clear()
-                search_box.send_keys(Keys.CONTROL + "a")
-                search_box.send_keys(Keys.BACKSPACE)
-                self.driver.execute_script("var el = arguments[0]; if (window.$ && $(el).length) { $(el).val('').trigger('input').trigger('change').trigger('keyup'); }", search_box)
-
-        except Exception:
-            pass
-
-        return False
+        if exists:
+            self.log(f"Pre-check: Contact '{query_name}' already exists on the portal. Skipping creation.", level="WARNING")
+            return True
+        else:
+            self.log(f"Pre-check: Contact '{query_name}' not found on portal (verified clear to add).", level="INFO")
+            return False
 
     def _export_skipped_contacts(self, skipped_list: list, csv_path: str):
         """Exports any contacts that were skipped because they already exist on the portal to skipped_existing_contacts_[timestamp].csv."""
