@@ -113,13 +113,16 @@ class AgilicoImporterApp:
         self.stat_ready_contacts_var = tk.StringVar(value="0")
         self.stat_dup_contacts_var = tk.StringVar(value="0")
         self.stat_gdpr_status_var = tk.StringVar(value="ENFORCED")
-        
+
         self.is_running = False
         self.stop_requested = False
         self.import_thread = None
         self.log_queue = queue.Queue()
+        self._driver_lock = threading.Lock()   # Fix #2: protect driver from race conditions
         self.driver = None
         self.failed_contacts = []
+        self._log_consumer_active = True       # Fix #15: guard log consumer after widget destroy
+        self._last_verified_idx = 0            # Fix #8: track last fully-verified contact index
 
         self.config_path = os.path.expanduser("~/.agilico_importer_lite_config.json")
         self._load_saved_config()
@@ -168,7 +171,6 @@ class AgilicoImporterApp:
             bordercolor=[("focus", "#00b862"), ("!focus", "#cbd5e1")],
         )
 
-        # Root Layout: Left Sidebar + Right Main Area
         # Root Layout: Left Sidebar + Right Main Area
         main_container = tk.Frame(self.root, bg=self.COLOR_APP_BG)
         main_container.pack(fill=tk.BOTH, expand=True)
@@ -268,10 +270,10 @@ class AgilicoImporterApp:
         self.lbl_stat_total = tk.Label(m1, textvariable=self.stat_total_contacts_var, font=("Segoe UI", 14, "bold"), fg=self.COLOR_TEXT_DARK, bg="#f8fafc")
         self.lbl_stat_total.pack(anchor="w", pady=(1, 0))
 
-        # Metric 2: READY / VALID
+        # Metric 2: VALID / UNIQUE
         m2 = tk.Frame(metrics_frame, bg="#f0fdf4", highlightbackground="#bbf7d0", highlightthickness=1, padx=12, pady=6)
         m2.grid(row=0, column=1, sticky="nsew", padx=(0, 6))
-        tk.Label(m2, text="ONLINE / READY", font=("Segoe UI", 7, "bold"), fg="#16a34a", bg="#f0fdf4").pack(anchor="w")
+        tk.Label(m2, text="VALID / UNIQUE", font=("Segoe UI", 7, "bold"), fg="#16a34a", bg="#f0fdf4").pack(anchor="w")
         self.lbl_stat_ready = tk.Label(m2, textvariable=self.stat_ready_contacts_var, font=("Segoe UI", 14, "bold"), fg="#16a34a", bg="#f0fdf4")
         self.lbl_stat_ready.pack(anchor="w", pady=(1, 0))
 
@@ -773,12 +775,17 @@ class AgilicoImporterApp:
                 except Exception:
                     pass
 
-        if self.driver:
-            try:
-                self.driver.quit()
-            except Exception:
-                pass
-            self.driver = None
+        # Fix #15: stop log consumer before destroy
+        self._log_consumer_active = False
+
+        # Fix #2: use driver lock to prevent race condition with background thread
+        with self._driver_lock:
+            if self.driver:
+                try:
+                    self.driver.quit()
+                except Exception:
+                    pass
+                self.driver = None
 
         self.root.destroy()
 
@@ -843,10 +850,19 @@ class AgilicoImporterApp:
             self.log(f"Warning: No valid contact rows found in '{file_path}'.", level="WARNING")
             return
 
+        # Fix #10: warn if CSV is very large
+        if len(contacts) > 500:
+            self.log(
+                f"Large CSV detected: {len(contacts)} contacts. Consider splitting into batches of ≤500 "
+                f"to avoid long portal sessions. The import will still proceed.",
+                level="WARNING",
+            )
+
         seen_numbers = set()
         seen_names = set()
         dup_numbers = 0
         dup_names = 0
+        no_number_count = 0  # Fix #5: track contacts missing a phone number
         for c in contacts:
             num = re.sub(r"[^\d+]", "", c.get("number", ""))
             name = (c.get("display_name") or "").strip().lower()
@@ -854,22 +870,33 @@ class AgilicoImporterApp:
                 if num in seen_numbers:
                     dup_numbers += 1
                 seen_numbers.add(num)
+            else:
+                no_number_count += 1  # Fix #5: count contacts with no phone number
             if name:
                 if name in seen_names:
                     dup_names += 1
                 seen_names.add(name)
 
         stats_str = f"📄 {base_name} ({len(contacts)} contacts)"
-        if dup_numbers > 0 or dup_names > 0:
+        if dup_numbers > 0:
             stats_str += f" — {dup_numbers} dup numbers"
+        if no_number_count > 0:
+            stats_str += f" — {no_number_count} no number"
 
         self.file_name_display_var.set(stats_str)
         self.stat_total_contacts_var.set(str(len(contacts)))
         self.stat_ready_contacts_var.set(str(max(0, len(contacts) - dup_numbers)))
         self.stat_dup_contacts_var.set(str(dup_numbers))
-        self.status_detail_var.set(f"Loaded {len(contacts)} contacts ready for import. Click 'Preview Contacts' to inspect.")
+        self.status_detail_var.set(f"Loaded {len(contacts)} contacts. {no_number_count} missing number. Click 'CSV Inspector' to review.")
         self.preview_btn.config(state=tk.NORMAL)
-        self.log(f"Parsed CSV '{base_name}': {len(contacts)} valid contacts detected ({dup_numbers} duplicate numbers).", level="INFO")
+
+        # Fix #5: log a clear warning about no-number contacts
+        if no_number_count > 0:
+            self.log(
+                f"Warning: {no_number_count} contact(s) have no phone number and will be imported as name-only.",
+                level="WARNING",
+            )
+        self.log(f"Parsed CSV '{base_name}': {len(contacts)} contacts ({dup_numbers} duplicate numbers, {no_number_count} missing number).", level="INFO")
 
     def _open_csv_preview_modal(self):
         """Opens an interactive modal preview dialog displaying all parsed contacts, duplicates, and format status."""
@@ -1024,7 +1051,7 @@ class AgilicoImporterApp:
                     f"================================================================================\n"
                     f"AGILICO CONTACT IMPORTER - LITE (v1.0.2) AUDIT LOG\n"
                     f"Export Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-                    f"Portal Target: {self.url_var.get().strip()}\n"
+                    f"Portal Target: {self.PORTAL_BASE_URL}\n"  # Fix #1: was self.url_var.get()
                     f"Customer Account: {self.username_var.get().strip()}\n"
                     f"================================================================================\n\n"
                 )
@@ -1042,7 +1069,10 @@ class AgilicoImporterApp:
         self.log_queue.put((now, message, level))
 
     def _start_log_consumer(self):
-        """Polls log queue and updates ScrolledText widget from UI thread."""
+        """Polls log queue and updates ScrolledText widget from UI thread.
+        Fix #15: guards against firing after the widget has been destroyed."""
+        if not self._log_consumer_active:
+            return
         try:
             while True:
                 time_str, msg, level = self.log_queue.get_nowait()
@@ -1058,6 +1088,8 @@ class AgilicoImporterApp:
                 self.log_queue.task_done()
         except queue.Empty:
             pass
+        except Exception:
+            return  # Widget likely destroyed; stop the consumer
 
         self.root.after(100, self._start_log_consumer)
 
@@ -1171,15 +1203,19 @@ class AgilicoImporterApp:
             self.log("[PRE-FLIGHT] Starting Test Login & GDPR Safeguard Check...", level="INFO")
             self.status_detail_var.set(f"Launching {browser_choice} for test verification...")
 
-            if self.driver:
-                try:
-                    self.driver.quit()
-                except Exception:
-                    pass
-                self.driver = None
+            # Fix #2: use driver lock when replacing existing driver
+            with self._driver_lock:
+                if self.driver:
+                    try:
+                        self.driver.quit()
+                    except Exception:
+                        pass
+                    self.driver = None
 
-            self.driver, b_name = self._create_browser_driver(browser_choice)
-            driver = self.driver
+            new_driver, b_name = self._create_browser_driver(browser_choice)
+            with self._driver_lock:
+                self.driver = new_driver
+            driver = new_driver
 
             self.log(f"[PRE-FLIGHT] Navigating to portal: {url}...", level="INFO")
             driver.get(url)
@@ -1211,11 +1247,13 @@ class AgilicoImporterApp:
             self.status_detail_var.set("Test Login Failed.")
             messagebox.showerror("Pre-Flight Test Failed", f"Could not authenticate or verify account:\n{str(ex)}", parent=self.root)
         finally:
-            if driver:
-                try:
-                    driver.quit()
-                except Exception:
-                    pass
+            # Fix #2: use driver lock on quit
+            with self._driver_lock:
+                if driver:
+                    try:
+                        driver.quit()
+                    except Exception:
+                        pass
                 self.driver = None
             self.root.after(0, lambda: self._set_ui_state(False))
 
@@ -1377,6 +1415,10 @@ class AgilicoImporterApp:
 
         def try_firefox():
             opts = FirefoxOptions()
+            # Fix #13: suppress Firefox webdriver detection (equivalent to Edge/Chrome anti-detection)
+            opts.set_preference("dom.webdriver.enabled", False)
+            opts.set_preference("useAutomationExtension", False)
+            opts.set_preference("dom.disable_beforeunload", True)
             return webdriver.Firefox(options=opts), "Mozilla Firefox"
 
         if "edge" in b_lower and "auto" not in b_lower:
@@ -1441,7 +1483,7 @@ class AgilicoImporterApp:
         except Exception:
             pass
         self._dismiss_portal_overlays(driver)
-        time.sleep(0.3)
+        time.sleep(0.1)  # Fix #9: reduced from 0.3s — enough for JS paint, not excessive
 
     def _safe_click(self, driver, element, retries: int = 3):
         """Scrolls element into center and clicks with robust JavaScript fallback and animation retries."""
@@ -1455,13 +1497,19 @@ class AgilicoImporterApp:
                 try:
                     driver.execute_script("arguments[0].click();", element)
                     return True
-                except Exception:
+                except Exception as js_ex:
+                    # Fix #7: log when JS fallback also fails
+                    if attempt == retries - 1:
+                        self.log(f"Click fallback failed (attempt {attempt+1}/{retries}): {str(js_ex).splitlines()[0]}", level="MUTED")
                     time.sleep(0.3)
             except Exception:
                 try:
                     driver.execute_script("arguments[0].click();", element)
                     return True
-                except Exception:
+                except Exception as js_ex2:
+                    # Fix #7: log when JS fallback also fails
+                    if attempt == retries - 1:
+                        self.log(f"Click JS fallback failed (attempt {attempt+1}/{retries}): {str(js_ex2).splitlines()[0]}", level="MUTED")
                     time.sleep(0.3)
         return False
 
@@ -1496,7 +1544,8 @@ class AgilicoImporterApp:
         return None
 
     def _populate_input(self, driver, element, value: str):
-        """Focuses, clears, and inputs text cleanly into an input element with native and jQuery event triggers."""
+        """Focuses, clears, and inputs text into an input element, then fires framework events.
+        Fix #16: send_keys sets the value; JS only fires events (not re-sets the value) to avoid double-input."""
         if not element or value is None:
             return
         try:
@@ -1511,19 +1560,18 @@ class AgilicoImporterApp:
             pass
 
         try:
-            # Ensure JavaScript and jQuery events trigger so ASP.NET and portal forms register the value
+            # Fire input/change/blur events so ASP.NET / jQuery forms register the keystroke value.
+            # Do NOT re-set el.value here — that would double-trigger and overwrite what send_keys entered.
             driver.execute_script(
-                "var el = arguments[0]; var val = arguments[1];"
+                "var el = arguments[0];"
                 "if (window.$ && $(el).length) {"
-                "    $(el).val(val).trigger('input').trigger('change').trigger('blur');"
+                "    $(el).trigger('input').trigger('change').trigger('blur');"
                 "} else {"
-                "    el.value = val;"
                 "    el.dispatchEvent(new Event('input', { bubbles: true }));"
                 "    el.dispatchEvent(new Event('change', { bubbles: true }));"
                 "    el.dispatchEvent(new Event('blur', { bubbles: true }));"
                 "}",
                 element,
-                value,
             )
         except Exception:
             pass
@@ -1881,6 +1929,17 @@ class AgilicoImporterApp:
             raise
         except Exception as ex:
             self.log(f"Tenant probe check info: {ex}", level="INFO")
+        finally:
+            # Fix #11: always navigate back to base URL after probing — probe URL may be an error/redirect page
+            try:
+                curr_after = (self.driver.current_url or "").rstrip("/").lower()
+                base_stripped = base_url.rstrip("/").lower()
+                if curr_after != base_stripped and "changetenant" in curr_after:
+                    self.log("Returning from tenant probe to portal base...", level="INFO")
+                    self.driver.get(base_url)
+                    self._wait_for_page_ready(self.driver, timeout=10.0)
+            except Exception:
+                pass
 
         self.log("GDPR Safeguard Verified: Account is strictly isolated to a single customer tenant.", level="SUCCESS")
 
@@ -2034,11 +2093,17 @@ class AgilicoImporterApp:
         self.status_detail_var.set("Performing final reconciliation check on portal...")
         self._return_to_contacts_list(contacts_url)
 
-        # Grab all visible text from page body for fast bulk verification
+        # Fix #4: scope text scan to contact table rows only, not full body.text
+        # body.text causes false-positives from nav/breadcrumbs/buttons containing name fragments.
         try:
-            page_text = self.driver.find_element(By.TAG_NAME, "body").text.lower()
+            table_rows = self.driver.find_elements(By.XPATH, "//table//tr")
+            table_text = " ".join(
+                (r.text or "").lower()
+                for r in table_rows
+                if r.is_displayed()
+            )
         except Exception:
-            page_text = ""
+            table_text = ""
 
         verified = []
         missing = []
@@ -2050,8 +2115,8 @@ class AgilicoImporterApp:
             if not disp:
                 continue
 
-            # Fast check against page text first
-            if disp.lower() in page_text or (fn.lower() in page_text and ln.lower() in page_text):
+            # Fast check against contact table rows text
+            if disp.lower() in table_text or (fn.lower() and ln.lower() and fn.lower() in table_text and ln.lower() in table_text):
                 verified.append(disp)
                 continue
 
@@ -2109,6 +2174,8 @@ class AgilicoImporterApp:
 
     def _run_automation(self, url: str, username: str, password: str, browser_choice: str, csv_path: str):
         self.log("Starting Agilico Contact Importer - Lite workflow...", level="INFO")
+        # Fix #3: clear password from memory — we already have it in the local variable
+        self.root.after(0, lambda: self.password_var.set(""))
         try:
             # Step 1: Read CSV
             self.log(f"Reading contacts from: {csv_path}", level="INFO")
@@ -2123,15 +2190,19 @@ class AgilicoImporterApp:
             self.status_detail_var.set(f"Loaded {len(contacts)} contacts. Initializing {browser_choice}...")
 
             # Step 2: Initialize Web Browser (Edge, Chrome, or Firefox)
-            if self.driver:
-                try:
-                    self.driver.quit()
-                except Exception:
-                    pass
-                self.driver = None
+            # Fix #2: use driver lock when replacing existing driver
+            with self._driver_lock:
+                if self.driver:
+                    try:
+                        self.driver.quit()
+                    except Exception:
+                        pass
+                    self.driver = None
 
             self.log("Detecting and initializing web browser...", level="INFO")
-            self.driver, browser_name = self._create_browser_driver(browser_choice)
+            new_driver, browser_name = self._create_browser_driver(browser_choice)
+            with self._driver_lock:
+                self.driver = new_driver
             self.log(f"Successfully launched {browser_name}.", level="SUCCESS")
             self.status_detail_var.set(f"{browser_name} active. Navigating to portal...")
 
@@ -2153,17 +2224,21 @@ class AgilicoImporterApp:
             self._verify_session_alive()
 
             self.failed_contacts = []
+            self._last_verified_idx = 0  # Fix #8: reset verified index tracker
             self.log("Starting contact import pipeline (real-time validation active)...", level="SUCCESS")
 
             success_count = 0
             fail_count = 0
             halted_by_validation = False
 
+            # Fix #6: per-contact timeout (seconds)
+            PER_CONTACT_TIMEOUT = 180  # 3 minutes max per contact
+
             # Step 7: Loop through each contact with auto-retry
             for idx, contact in enumerate(contacts, start=1):
                 if self.stop_requested:
                     self.log("Process stopped by user.", level="WARNING")
-                    self._export_remaining_contacts(contacts, idx - 1, csv_path)
+                    self._export_remaining_contacts(contacts, self._last_verified_idx, csv_path)
                     break
 
                 # Verify session before action
@@ -2181,8 +2256,21 @@ class AgilicoImporterApp:
 
                 max_retries = 2
                 contact_completed = False
+                # Fix #6: track start time for per-contact timeout
+                contact_start_time = time.time()
 
                 for attempt in range(1, max_retries + 1):
+                    # Fix #6: enforce per-contact timeout
+                    if time.time() - contact_start_time > PER_CONTACT_TIMEOUT:
+                        self.log(
+                            f"[TIMEOUT] Contact '{contact['display_name']}' exceeded {PER_CONTACT_TIMEOUT}s "
+                            f"timeout. Skipping to next contact.",
+                            level="WARNING",
+                        )
+                        fail_count += 1
+                        self.failed_contacts.append((contact.get("row_num", idx), contact.get("display_name", "Unknown"), "Per-contact timeout exceeded"))
+                        break
+
                     try:
                         self._dismiss_unexpected_alert()
 
@@ -2359,7 +2447,8 @@ class AgilicoImporterApp:
                                 continue
                             else:
                                 halted_by_validation = True
-                                exp_path = self._export_remaining_contacts(contacts, idx - 1, csv_path)
+                                # Fix #8: export from last_verified_idx (not idx-1) to avoid double-listing partial contacts
+                                exp_path = self._export_remaining_contacts(contacts, self._last_verified_idx, csv_path)
                                 fail_msg = (
                                     f"Real-Time Verification Failed!\n\n"
                                     f"Contact '{contact['display_name']}' (Row {contact['row_num']}) could not be confirmed on the live portal page after creation.\n\n"
@@ -2373,6 +2462,7 @@ class AgilicoImporterApp:
 
                         success_count += 1
                         contact_completed = True
+                        self._last_verified_idx = idx  # Fix #8: mark this contact as fully verified
                         self.log(f"Successfully completed and verified contact {idx}/{len(contacts)}: {contact['display_name']}", level="SUCCESS")
                         break
 
@@ -2448,6 +2538,14 @@ class AgilicoImporterApp:
             self.status_detail_var.set("Unexpected Error occurred.")
             messagebox.showerror("Error", f"An unexpected error occurred:\n{str(e)}", parent=self.root)
         finally:
+            # Fix #2: use driver lock when quitting driver at end of automation
+            with self._driver_lock:
+                if self.driver:
+                    try:
+                        self.driver.quit()
+                    except Exception:
+                        pass
+                    self.driver = None
             self.root.after(0, lambda: self._set_ui_state(False))
 
 
