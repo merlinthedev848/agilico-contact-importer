@@ -6,6 +6,7 @@ import io
 import re
 import time
 import queue
+import shutil
 import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
@@ -898,6 +899,213 @@ class AgilicoImporterApp:
             )
         self.log(f"Parsed CSV '{base_name}': {len(contacts)} contacts ({dup_numbers} duplicate numbers, {no_number_count} missing number).", level="INFO")
 
+    def _save_contacts_to_csv(self, csv_path: str, contacts: list, parent=None) -> bool:
+        """Saves current contact list back to CSV with automatic .bak backup and Excel lock handling."""
+        if not csv_path:
+            return False
+
+        # 1. Automatic safety backup (.bak) on first modification
+        try:
+            if os.path.exists(csv_path):
+                bak_path = csv_path + ".bak"
+                if not os.path.exists(bak_path):
+                    shutil.copy2(csv_path, bak_path)
+        except Exception:
+            pass
+
+        # 2. Write updated contacts back to CSV
+        try:
+            with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
+                writer = csv.DictWriter(
+                    f,
+                    fieldnames=["First Name", "Last Name", "Display Name", "Number"],
+                )
+                writer.writeheader()
+                for c in contacts:
+                    writer.writerow({
+                        "First Name": c.get("first_name", ""),
+                        "Last Name": c.get("last_name", ""),
+                        "Display Name": c.get("display_name", ""),
+                        "Number": c.get("number", ""),
+                    })
+            return True
+        except (PermissionError, OSError):
+            err_msg = (
+                f"Could not save changes to CSV file:\n\n{csv_path}\n\n"
+                "The file appears to be locked or open in another program (such as Microsoft Excel).\n\n"
+                "Please close the file in Excel or other programs and try saving again."
+            )
+            messagebox.showerror("File Locked — Save Failed", err_msg, parent=parent or self.root)
+            return False
+        except Exception as ex:
+            messagebox.showerror("Save Error", f"An unexpected error occurred while saving the CSV:\n{ex}", parent=parent or self.root)
+            return False
+
+    def _open_edit_contact_dialog(self, parent, contact: dict, on_save_callback, is_new: bool = False):
+        """Opens a modal dialog to edit or create contact fields with live format validation."""
+        dlg = tk.Toplevel(parent)
+        dlg.title("Add New Contact" if is_new else f"Edit Contact — Row #{contact.get('row_num', '?')}")
+        dlg.geometry("520x400")
+        dlg.minsize(460, 360)
+        dlg.transient(parent)
+        dlg.grab_set()
+
+        # Modal Header
+        hdr = tk.Frame(dlg, bg=self.COLOR_SIDEBAR_BG, padx=16, pady=12)
+        hdr.pack(fill=tk.X)
+        tk.Label(
+            hdr,
+            text="Add New Contact" if is_new else f"Edit Contact (Row #{contact.get('row_num', '?')})",
+            font=("Segoe UI", 11, "bold"),
+            fg="#ffffff",
+            bg=self.COLOR_SIDEBAR_BG,
+        ).pack(anchor="w")
+        tk.Label(
+            hdr,
+            text="Changes will automatically save back to the CSV file.",
+            font=("Segoe UI", 8),
+            fg="#94a3b8",
+            bg=self.COLOR_SIDEBAR_BG,
+        ).pack(anchor="w")
+
+        body = tk.Frame(dlg, bg="#ffffff", padx=20, pady=16)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        # Variables
+        fn_var = tk.StringVar(value=contact.get("first_name", ""))
+        ln_var = tk.StringVar(value=contact.get("last_name", ""))
+        dn_var = tk.StringVar(value=contact.get("display_name", ""))
+        num_var = tk.StringVar(value=contact.get("number", ""))
+        type_detect_var = tk.StringVar(value="")
+
+        def update_detected_type(*args):
+            num = re.sub(r"[^\d+]", "", num_var.get())
+            if not num:
+                type_detect_var.set("No Number (Name Only)")
+            elif num.startswith(("07", "+447", "447", "00447")):
+                type_detect_var.set("📱 Detected: Mobile")
+            else:
+                type_detect_var.set("☎️ Detected: Work Landline")
+
+        def auto_fill_display_name(*args):
+            if not dn_var.get().strip() or dn_var.get().strip() == f"Contact {contact.get('row_num', '')}":
+                fn = fn_var.get().strip()
+                ln = ln_var.get().strip()
+                if fn and ln:
+                    dn_var.set(f"{fn} {ln}")
+                elif fn:
+                    dn_var.set(fn)
+                elif ln:
+                    dn_var.set(ln)
+
+        fn_var.trace_add("write", auto_fill_display_name)
+        ln_var.trace_add("write", auto_fill_display_name)
+        num_var.trace_add("write", update_detected_type)
+        update_detected_type()
+
+        # First Name
+        tk.Label(body, text="First Name:", font=("Segoe UI", 8, "bold"), fg="#334155", bg="#ffffff").pack(anchor="w")
+        fn_entry = tk.Entry(body, textvariable=fn_var, font=("Segoe UI", 9), highlightbackground="#cbd5e1", highlightthickness=1, bd=0, relief=tk.FLAT)
+        fn_entry.pack(fill=tk.X, ipady=4, pady=(2, 8))
+
+        # Last Name
+        tk.Label(body, text="Last Name:", font=("Segoe UI", 8, "bold"), fg="#334155", bg="#ffffff").pack(anchor="w")
+        ln_entry = tk.Entry(body, textvariable=ln_var, font=("Segoe UI", 9), highlightbackground="#cbd5e1", highlightthickness=1, bd=0, relief=tk.FLAT)
+        ln_entry.pack(fill=tk.X, ipady=4, pady=(2, 8))
+
+        # Display Name
+        dn_row = tk.Frame(body, bg="#ffffff")
+        dn_row.pack(fill=tk.X)
+        tk.Label(dn_row, text="Display Name:", font=("Segoe UI", 8, "bold"), fg="#334155", bg="#ffffff").pack(side=tk.LEFT)
+        tk.Label(dn_row, text="(Portal requires min 5 characters; padded automatically if shorter)", font=("Segoe UI", 7), fg="#64748b", bg="#ffffff").pack(side=tk.LEFT, padx=6)
+        dn_entry = tk.Entry(body, textvariable=dn_var, font=("Segoe UI", 9), highlightbackground="#cbd5e1", highlightthickness=1, bd=0, relief=tk.FLAT)
+        dn_entry.pack(fill=tk.X, ipady=4, pady=(2, 8))
+
+        # Number & Type Indicator
+        num_row = tk.Frame(body, bg="#ffffff")
+        num_row.pack(fill=tk.X)
+        tk.Label(num_row, text="Telephone Number:", font=("Segoe UI", 8, "bold"), fg="#334155", bg="#ffffff").pack(side=tk.LEFT)
+        tk.Label(num_row, textvariable=type_detect_var, font=("Segoe UI", 7, "bold"), fg="#2563eb", bg="#ffffff").pack(side=tk.RIGHT)
+        num_entry = tk.Entry(body, textvariable=num_var, font=("Segoe UI", 9), highlightbackground="#cbd5e1", highlightthickness=1, bd=0, relief=tk.FLAT)
+        num_entry.pack(fill=tk.X, ipady=4, pady=(2, 12))
+
+        # Button Bar
+        btn_bar = tk.Frame(dlg, bg="#f8fafc", padx=16, pady=10, highlightbackground=self.COLOR_BORDER, highlightthickness=1)
+        btn_bar.pack(fill=tk.X, side=tk.BOTTOM)
+
+        def save_and_close():
+            fn = fn_var.get().strip()
+            ln = ln_var.get().strip()
+            dn = dn_var.get().strip()
+            num = num_var.get().strip()
+
+            if not fn and not ln and not dn and not num:
+                messagebox.showwarning("Incomplete", "Please enter at least a name or telephone number for this contact.", parent=dlg)
+                return
+
+            if not dn:
+                if fn and ln:
+                    dn = f"{fn} {ln}"
+                elif fn:
+                    dn = fn
+                elif ln:
+                    dn = ln
+                elif num:
+                    dn = f"Contact {num}"
+                else:
+                    dn = "Contact"
+
+            if len(dn) < 5:
+                dn = dn.ljust(5)
+
+            updated = {
+                "row_num": contact.get("row_num", 1),
+                "first_name": fn,
+                "last_name": ln,
+                "display_name": dn,
+                "number": num,
+            }
+            if on_save_callback(updated):
+                dlg.destroy()
+
+        save_btn = tk.Button(
+            btn_bar,
+            text="💾  Save & Update CSV",
+            command=save_and_close,
+            font=("Segoe UI", 9, "bold"),
+            bg=self.COLOR_GREEN,
+            fg="#ffffff",
+            activebackground=self.COLOR_GREEN_HOVER,
+            activeforeground="#ffffff",
+            padx=14,
+            pady=4,
+            relief=tk.FLAT,
+            bd=0,
+            cursor="hand2",
+        )
+        save_btn.pack(side=tk.RIGHT, padx=(6, 0))
+
+        cancel_btn = tk.Button(
+            btn_bar,
+            text="Cancel",
+            command=dlg.destroy,
+            font=("Segoe UI", 9),
+            bg="#ffffff",
+            fg="#475569",
+            activebackground="#f1f5f9",
+            activeforeground="#0f172a",
+            highlightbackground="#cbd5e1",
+            highlightthickness=1,
+            padx=12,
+            pady=4,
+            relief=tk.FLAT,
+            bd=0,
+            cursor="hand2",
+        )
+        cancel_btn.pack(side=tk.RIGHT)
+
+        fn_entry.focus_set()
+
     def _open_csv_preview_modal(self):
         """Opens an interactive modal preview dialog displaying all parsed contacts, duplicates, and format status."""
         csv_path = self.csv_path_var.get().strip().strip('"').strip("'")
@@ -911,9 +1119,9 @@ class AgilicoImporterApp:
             return
 
         preview_win = tk.Toplevel(self.root)
-        preview_win.title(f"CSV Pre-Flight Inspection — {os.path.basename(csv_path)}")
-        preview_win.geometry("820x520")
-        preview_win.minsize(700, 420)
+        preview_win.title(f"CSV Pre-Flight Inspection & Editor — {os.path.basename(csv_path)}")
+        preview_win.geometry("860x540")
+        preview_win.minsize(740, 440)
         preview_win.transient(self.root)
         preview_win.grab_set()
 
@@ -923,7 +1131,7 @@ class AgilicoImporterApp:
 
         tk.Label(
             header_frame,
-            text="Pre-Flight CSV Inspection",
+            text="Pre-Flight CSV Inspection & Editor",
             font=("Segoe UI", 12, "bold"),
             fg="#ffffff",
             bg=self.COLOR_SIDEBAR_BG,
@@ -931,14 +1139,18 @@ class AgilicoImporterApp:
 
         tk.Label(
             header_frame,
-            text="Review parsed contacts, auto-detected columns, and duplicate checks before importing.",
+            text="Review and edit contacts. Double-click any row to edit typos — changes will auto-save to CSV.",
             font=("Segoe UI", 8),
             fg="#94a3b8",
             bg=self.COLOR_SIDEBAR_BG,
         ).pack(anchor="w")
 
+        # Action Strip
+        action_strip = tk.Frame(preview_win, bg="#f1f5f9", padx=16, pady=6, highlightbackground="#cbd5e1", highlightthickness=1)
+        action_strip.pack(fill=tk.X)
+
         # Table container
-        body_frame = tk.Frame(preview_win, bg=self.COLOR_APP_BG, padx=16, pady=12)
+        body_frame = tk.Frame(preview_win, bg=self.COLOR_APP_BG, padx=16, pady=10)
         body_frame.pack(fill=tk.BOTH, expand=True)
 
         cols = ("row", "first_name", "last_name", "display_name", "number", "type")
@@ -963,58 +1175,198 @@ class AgilicoImporterApp:
         tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
-        seen_nums = set()
-        dup_count = 0
-
-        for c in contacts:
-            phone = (c.get("number") or "").strip()
-            clean_num = re.sub(r"[^\d+]", "", phone)
-
-            is_dup = False
-            if clean_num:
-                if clean_num in seen_nums:
-                    is_dup = True
-                    dup_count += 1
-                seen_nums.add(clean_num)
-
-            detected_type = "—"
-            if clean_num:
-                if clean_num.startswith(("07", "+447", "447", "00447")):
-                    detected_type = "Mobile"
-                else:
-                    detected_type = "Work"
-
-            tag = "dup" if is_dup else "normal"
-            tree.insert(
-                "",
-                tk.END,
-                values=(
-                    c.get("row_num", ""),
-                    c.get("first_name", ""),
-                    c.get("last_name", ""),
-                    c.get("display_name", ""),
-                    f"{phone} (DUP)" if is_dup else phone,
-                    detected_type,
-                ),
-                tags=(tag,),
-            )
-
         tree.tag_configure("dup", background="#fee2e2", foreground="#991b1b")
+        tree.tag_configure("no_num", background="#fef9c3", foreground="#854d0e")
         tree.tag_configure("normal", background="#ffffff")
 
-        # Bottom Summary Bar
+        # Footer Summary Bar
         footer = tk.Frame(preview_win, bg="#ffffff", padx=16, pady=10, highlightbackground=self.COLOR_BORDER, highlightthickness=1)
         footer.pack(fill=tk.X, side=tk.BOTTOM)
 
-        status_text = f"Total Contacts: {len(contacts)}  |  Duplicate Numbers: {dup_count}  |  Speed Dials: Auto-Generated"
-        tk.Label(
+        status_lbl = tk.Label(
             footer,
-            text=status_text,
+            text="",
             font=("Segoe UI", 9, "bold"),
             fg=self.COLOR_TEXT_DARK,
             bg="#ffffff",
+        )
+        status_lbl.pack(side=tk.LEFT)
+
+        def refresh_table():
+            tree.delete(*tree.get_children())
+            seen_nums = set()
+            dup_count = 0
+            no_num_count = 0
+
+            # First pass: count duplicates
+            num_counts = {}
+            for c in contacts:
+                raw_phone = (c.get("number") or "").strip()
+                clean_num = re.sub(r"[^\d+]", "", raw_phone)
+                if clean_num:
+                    num_counts[clean_num] = num_counts.get(clean_num, 0) + 1
+
+            for idx, c in enumerate(contacts, start=1):
+                c["row_num"] = idx
+                phone = (c.get("number") or "").strip()
+                clean_num = re.sub(r"[^\d+]", "", phone)
+
+                is_dup = False
+                if clean_num:
+                    if num_counts.get(clean_num, 0) > 1:
+                        is_dup = True
+                        if clean_num in seen_nums:
+                            dup_count += 1
+                        seen_nums.add(clean_num)
+                else:
+                    no_num_count += 1
+
+                detected_type = "—"
+                if clean_num:
+                    if clean_num.startswith(("07", "+447", "447", "00447")):
+                        detected_type = "Mobile"
+                    else:
+                        detected_type = "Work"
+
+                tag = "dup" if is_dup else ("no_num" if not clean_num else "normal")
+                tree.insert(
+                    "",
+                    tk.END,
+                    iid=str(idx - 1),
+                    values=(
+                        idx,
+                        c.get("first_name", ""),
+                        c.get("last_name", ""),
+                        c.get("display_name", ""),
+                        f"{phone} (DUP)" if is_dup else (phone if phone else "— (No Number)"),
+                        detected_type,
+                    ),
+                    tags=(tag,),
+                )
+
+            status_text = f"Total Contacts: {len(contacts)}  |  Duplicate Numbers: {dup_count}  |  No Number: {no_num_count}"
+            status_lbl.config(text=status_text)
+
+        def on_edit_selected():
+            selected = tree.selection()
+            if not selected:
+                messagebox.showinfo("Select Contact", "Please select a contact row to edit.", parent=preview_win)
+                return
+            idx = int(selected[0])
+            contact = contacts[idx]
+
+            def handle_save(updated_contact):
+                contacts[idx] = updated_contact
+                if self._save_contacts_to_csv(csv_path, contacts, parent=preview_win):
+                    refresh_table()
+                    self._analyze_and_preview_csv(csv_path)
+                    self.log(f"Updated contact #{idx+1} ('{updated_contact['display_name'].strip()}') and auto-saved CSV.", level="SUCCESS")
+                    return True
+                return False
+
+            self._open_edit_contact_dialog(preview_win, contact, handle_save, is_new=False)
+
+        def on_add_new():
+            new_contact = {
+                "row_num": len(contacts) + 1,
+                "first_name": "",
+                "last_name": "",
+                "display_name": "",
+                "number": "",
+            }
+
+            def handle_add(created_contact):
+                contacts.append(created_contact)
+                if self._save_contacts_to_csv(csv_path, contacts, parent=preview_win):
+                    refresh_table()
+                    self._analyze_and_preview_csv(csv_path)
+                    self.log(f"Added new contact ('{created_contact['display_name'].strip()}') and auto-saved CSV.", level="SUCCESS")
+                    return True
+                return False
+
+            self._open_edit_contact_dialog(preview_win, new_contact, handle_add, is_new=True)
+
+        def on_delete_selected():
+            selected = tree.selection()
+            if not selected:
+                messagebox.showinfo("Select Contact", "Please select a contact row to delete.", parent=preview_win)
+                return
+            idx = int(selected[0])
+            contact = contacts[idx]
+            name = contact.get("display_name", f"Row #{idx+1}").strip()
+
+            if messagebox.askyesno("Confirm Delete", f"Are you sure you want to delete '{name}' from the CSV?", parent=preview_win):
+                del contacts[idx]
+                if self._save_contacts_to_csv(csv_path, contacts, parent=preview_win):
+                    refresh_table()
+                    self._analyze_and_preview_csv(csv_path)
+                    self.log(f"Deleted contact '{name}' and auto-saved CSV.", level="INFO")
+
+        # Action Buttons in Strip
+        tk.Button(
+            action_strip,
+            text="✏️  Edit Contact",
+            command=on_edit_selected,
+            font=("Segoe UI", 8, "bold"),
+            bg="#ffffff",
+            fg=self.COLOR_TEXT_DARK,
+            activebackground="#e2e8f0",
+            highlightbackground="#cbd5e1",
+            highlightthickness=1,
+            bd=0,
+            padx=10,
+            pady=3,
+            relief=tk.FLAT,
+            cursor="hand2",
+        ).pack(side=tk.LEFT, padx=(0, 6))
+
+        tk.Button(
+            action_strip,
+            text="➕  Add Contact",
+            command=on_add_new,
+            font=("Segoe UI", 8, "bold"),
+            bg="#ffffff",
+            fg="#16a34a",
+            activebackground="#f0fdf4",
+            highlightbackground="#bbf7d0",
+            highlightthickness=1,
+            bd=0,
+            padx=10,
+            pady=3,
+            relief=tk.FLAT,
+            cursor="hand2",
+        ).pack(side=tk.LEFT, padx=(0, 6))
+
+        tk.Button(
+            action_strip,
+            text="🗑  Delete Contact",
+            command=on_delete_selected,
+            font=("Segoe UI", 8, "bold"),
+            bg="#ffffff",
+            fg="#dc2626",
+            activebackground="#fef2f2",
+            highlightbackground="#fecaca",
+            highlightthickness=1,
+            bd=0,
+            padx=10,
+            pady=3,
+            relief=tk.FLAT,
+            cursor="hand2",
         ).pack(side=tk.LEFT)
 
+        tk.Label(
+            action_strip,
+            text="💡 Tip: Double-click any row to edit directly",
+            font=("Segoe UI", 8, "italic"),
+            fg="#64748b",
+            bg="#f1f5f9",
+        ).pack(side=tk.RIGHT)
+
+        # Bindings
+        tree.bind("<Double-1>", lambda e: on_edit_selected())
+        tree.bind("<Return>", lambda e: on_edit_selected())
+
+        # Close button in footer
         tk.Button(
             footer,
             text="Close",
@@ -1029,6 +1381,8 @@ class AgilicoImporterApp:
             relief=tk.FLAT,
             cursor="hand2",
         ).pack(side=tk.RIGHT)
+
+        refresh_table()
 
     def _export_log(self):
         """Exports the entire activity and diagnostics log to a timestamped .txt audit file."""
