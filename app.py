@@ -2222,41 +2222,18 @@ class AgilicoImporterApp:
 
     def _verify_gdpr_tenant_lockout(self, base_url: str):
         """GDPR Multi-Tenant Lockout Safeguard:
-        Checks whether the authenticated account has permissions to switch customer tenants.
-        If tenant switching is detected (MSP/engineer account), throws a GDPR warning and halts immediately.
+        Checks whether the authenticated account has access to multiple customer tenants.
+        All customer accounts see the Change Tenant screen, but single-tenant customers
+        only have 1 entry (their own company). MSP / multi-tenant accounts have >1 entries.
         """
         self.log("Running GDPR Multi-Tenant Lockout Verification...", level="INFO")
         self.status_detail_var.set("Verifying GDPR customer isolation safeguards...")
 
-        # 1. Check current DOM for tenant switching links
-        tenant_nav_xpaths = [
-            "//a[contains(@href, 'ChangeTenant')]",
-            "//a[contains(@href, 'TargetCustomer')]",
-            "//a[contains(translate(., 'CHANGE TENANT', 'change tenant'), 'change tenant')]",
-            "//a[contains(translate(., 'SWITCH CUSTOMER', 'switch customer'), 'switch customer')]",
-        ]
-        for xp in tenant_nav_xpaths:
-            try:
-                elems = self.driver.find_elements(By.XPATH, xp)
-                for el in elems:
-                    if el.is_displayed():
-                        msg = (
-                            "GDPR SECURITY ALERT: Multi-Tenant Access Detected!\n\n"
-                            "This account possesses administrative rights to switch tenants.\n"
-                            "Agilico Contact Importer - Lite only permits logging in directly "
-                            "as a single customer to eliminate any risk of cross-tenant data leakage.\n\n"
-                            "Process halted immediately for safety."
-                        )
-                        self.log(msg, level="ERROR")
-                        raise PermissionError(msg)
-            except PermissionError:
-                raise
-            except Exception:
-                continue
-
-        # 2. Probe /Account/ChangeTenant endpoint directly
         probe_url = f"{base_url.rstrip('/')}/Account/ChangeTenant"
-        self.log(f"Probing tenant switcher boundary ({probe_url})...", level="INFO")
+        self.log(f"Checking customer tenant isolation ({probe_url})...", level="INFO")
+        tenant_name = ""
+        tenant_count = 1
+
         try:
             self.driver.get(probe_url)
             self._wait_for_page_ready(self.driver, timeout=10.0)
@@ -2264,38 +2241,93 @@ class AgilicoImporterApp:
 
             curr = (self.driver.current_url or "").lower()
             if "changetenant" in curr:
-                # If page contains customer switcher elements, it's multi-tenant!
-                switcher_elems = self.driver.find_elements(
+                # Wait for DataTables / table rows to be rendered
+                try:
+                    WebDriverWait(self.driver, 6).until(
+                        EC.presence_of_element_located((
+                            By.XPATH,
+                            "//table//tbody//tr | //div[contains(@class, 'dataTables_info')] | //*[contains(text(), 'Showing')]"
+                        ))
+                    )
+                except Exception:
+                    pass
+
+                # Strategy 1: Parse DataTables info string (e.g., "Showing 1 to 1 of 1 entries" or "Showing 1 to 10 of 42 entries")
+                info_elems = self.driver.find_elements(
                     By.XPATH,
-                    "//a[contains(@href, 'TargetCustomer')] | //input[@type='search'] | //table//a[contains(@class, 'btn') and .//i[contains(@class, 'fa-pencil')]]"
+                    "//*[contains(@class, 'dataTables_info') or contains(@id, 'info') or contains(text(), 'Showing')]"
                 )
-                if any(el.is_displayed() for el in switcher_elems):
+                parsed_count = None
+                for el in info_elems:
+                    try:
+                        txt = el.text.strip()
+                        m = re.search(r"of\s+([\d,]+)\s+(?:total\s+)?entries", txt, re.IGNORECASE)
+                        if m:
+                            parsed_count = int(m.group(1).replace(",", ""))
+                            break
+                    except Exception:
+                        continue
+
+                # Strategy 2: Parse table rows directly
+                table_rows = self.driver.find_elements(By.XPATH, "//table//tbody//tr")
+                valid_rows = []
+                for r in table_rows:
+                    try:
+                        t = (r.text or "").strip()
+                        # Exclude empty rows, "No data available", or loading indicators
+                        if t and "no data" not in t.lower() and "no matching" not in t.lower() and "loading" not in t.lower():
+                            valid_rows.append(t)
+                    except Exception:
+                        continue
+
+                if parsed_count is not None:
+                    tenant_count = parsed_count
+                elif valid_rows:
+                    tenant_count = len(valid_rows)
+                else:
+                    tenant_count = 1
+
+                # Extract customer tenant name and code from first row if available
+                if valid_rows:
+                    cols = [c.strip() for c in valid_rows[0].split("\n") if c.strip()]
+                    if len(cols) >= 2:
+                        tenant_name = f"{cols[0]} ({cols[1]})"
+                    elif cols:
+                        tenant_name = cols[0]
+
+                self.log(f"Tenant isolation probe detected: {tenant_count} tenant entry(ies).", level="INFO")
+
+                if tenant_count > 1:
                     msg = (
-                        "GDPR SECURITY ALERT: Multi-Tenant Access Detected!\n\n"
-                        "This account has full access to the Customer Tenant Switcher (/Account/ChangeTenant).\n"
-                        "Agilico Contact Importer - Lite only permits logging in directly "
-                        "as a single customer to eliminate any risk of cross-tenant data leakage.\n\n"
-                        "Process halted immediately for safety."
+                        f"GDPR SECURITY ALERT: Multi-Tenant Access Detected!\n\n"
+                        f"This account has access to switch between {tenant_count} customer tenants in the portal.\n"
+                        f"Agilico Contact Importer - Lite requires logging in directly "
+                        f"as a single-tenant customer to eliminate cross-tenant data leakage risks.\n\n"
+                        f"Process halted immediately for safety."
                     )
                     self.log(msg, level="ERROR")
                     raise PermissionError(msg)
+
         except PermissionError:
             raise
         except Exception as ex:
-            self.log(f"Tenant probe check info: {ex}", level="INFO")
+            self.log(f"Tenant isolation verification notice: {ex}", level="INFO")
         finally:
-            # Fix #11: always navigate back to base URL after probing — probe URL may be an error/redirect page
+            # Always navigate cleanly back to portal base URL after checking
             try:
                 curr_after = (self.driver.current_url or "").rstrip("/").lower()
                 base_stripped = base_url.rstrip("/").lower()
                 if curr_after != base_stripped and "changetenant" in curr_after:
-                    self.log("Returning from tenant probe to portal base...", level="INFO")
+                    self.log("Returning from tenant check to portal...", level="INFO")
                     self.driver.get(base_url)
                     self._wait_for_page_ready(self.driver, timeout=10.0)
             except Exception:
                 pass
 
-        self.log("GDPR Safeguard Verified: Account is strictly isolated to a single customer tenant.", level="SUCCESS")
+        if tenant_name:
+            self.log(f"GDPR Safeguard Verified: Strictly isolated to single customer tenant: '{tenant_name}'.", level="SUCCESS")
+        else:
+            self.log("GDPR Safeguard Verified: Account is strictly isolated to a single customer tenant.", level="SUCCESS")
 
     def _verify_session_alive(self):
         """Continuous Identity Verification: Checks on every action that the customer session remains valid."""
