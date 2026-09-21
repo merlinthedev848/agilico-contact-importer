@@ -2548,6 +2548,119 @@ class AgilicoImporterApp:
 
         return verified, missing
 
+    def _check_contact_exists_on_portal(self, contact: dict, contacts_url: str) -> bool:
+        """Pre-check on the live contacts list to see if this contact already exists prior to creating."""
+        disp_name = (contact.get("display_name") or "").strip()
+        first_name = (contact.get("first_name") or "").strip()
+        last_name = (contact.get("last_name") or "").strip()
+        phone_num = (contact.get("number") or "").strip()
+        clean_phone = re.sub(r"[^\d+]", "", phone_num)
+
+        if not disp_name and not (first_name and last_name):
+            return False
+
+        try:
+            # 1. Fast check across currently visible table rows
+            rows = self.driver.find_elements(By.XPATH, "//table//tbody//tr")
+            disp_lower = disp_name.lower()
+            fn_lower = first_name.lower()
+            ln_lower = last_name.lower()
+
+            for r in rows:
+                if not r.is_displayed():
+                    continue
+                row_text = (r.text or "").lower()
+                if not row_text or "no data" in row_text or "no matching" in row_text:
+                    continue
+                if disp_lower and disp_lower in row_text:
+                    return True
+                if fn_lower and ln_lower and fn_lower in row_text and ln_lower in row_text:
+                    return True
+                if clean_phone and len(clean_phone) >= 7 and clean_phone in re.sub(r"[^\d+]", "", row_text):
+                    return True
+
+            # 2. If table has search box, perform quick filter search
+            search_boxes = self.driver.find_elements(By.XPATH, "//input[@type='search' or contains(@aria-controls, 'contact')]")
+            search_box = next((s for s in search_boxes if s.is_displayed() and s.is_enabled()), None)
+
+            if search_box and disp_name:
+                search_box.clear()
+                search_box.send_keys(disp_name)
+                time.sleep(0.3)
+
+                filtered_rows = self.driver.find_elements(By.XPATH, "//table//tbody//tr")
+                for r in filtered_rows:
+                    if not r.is_displayed():
+                        continue
+                    r_text = (r.text or "").lower()
+                    if not r_text or "no data" in r_text or "no matching" in r_text:
+                        continue
+                    if disp_lower in r_text or (fn_lower and ln_lower and fn_lower in r_text and ln_lower in r_text):
+                        # Reset search box
+                        search_box.clear()
+                        search_box.send_keys(Keys.CONTROL + "a")
+                        search_box.send_keys(Keys.BACKSPACE)
+                        self.driver.execute_script("var el = arguments[0]; if (window.$ && $(el).length) { $(el).val('').trigger('input').trigger('change').trigger('keyup'); }", search_box)
+                        return True
+
+                # Clear search box back to normal
+                search_box.clear()
+                search_box.send_keys(Keys.CONTROL + "a")
+                search_box.send_keys(Keys.BACKSPACE)
+                self.driver.execute_script("var el = arguments[0]; if (window.$ && $(el).length) { $(el).val('').trigger('input').trigger('change').trigger('keyup'); }", search_box)
+
+        except Exception:
+            pass
+
+        return False
+
+    def _export_skipped_contacts(self, skipped_list: list, csv_path: str):
+        """Exports any contacts that were skipped because they already exist on the portal to skipped_existing_contacts_[timestamp].csv."""
+        if not skipped_list:
+            return None
+        try:
+            orig_dir = os.path.dirname(os.path.abspath(csv_path)) if csv_path and os.path.exists(csv_path) else os.getcwd()
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            export_name = f"skipped_existing_contacts_{timestamp}.csv"
+            export_path = os.path.join(orig_dir, export_name)
+
+            with open(export_path, "w", newline="", encoding="utf-8-sig") as f:
+                writer = csv.DictWriter(
+                    f,
+                    fieldnames=["Row", "First Name", "Last Name", "Display Name", "Number", "Reason"],
+                )
+                writer.writeheader()
+                for c in skipped_list:
+                    writer.writerow({
+                        "Row": c.get("row_num", ""),
+                        "First Name": c.get("first_name", ""),
+                        "Last Name": c.get("last_name", ""),
+                        "Display Name": c.get("display_name", ""),
+                        "Number": c.get("number", ""),
+                        "Reason": c.get("reason", "Already exists on customer portal"),
+                    })
+
+            self.log(f"Exported {len(skipped_list)} skipped existing contact(s) to: {export_path}", level="INFO")
+
+            def prompt_open_dir():
+                if messagebox.askyesno(
+                    "Skipped Contacts Exported",
+                    f"{len(skipped_list)} contact(s) already existed on the customer portal and were skipped.\n\n"
+                    f"Saved report to:\n{export_path}\n\n"
+                    f"Would you like to open this folder in File Explorer now?",
+                    parent=self.root,
+                ):
+                    try:
+                        os.startfile(orig_dir)
+                    except Exception:
+                        pass
+
+            self.root.after(300, prompt_open_dir)
+            return export_path
+        except Exception as ex:
+            self.log(f"Could not export skipped contacts: {ex}", level="WARNING")
+            return None
+
     def _export_remaining_contacts(self, contacts: list, completed_count: int, csv_path: str):
         """Exports any unimported contacts from the CSV to unprocessed_contacts_[timestamp].csv and offers to open folder."""
         remaining = contacts[completed_count:]
@@ -2662,6 +2775,7 @@ class AgilicoImporterApp:
             self._verify_session_alive()
 
             self.failed_contacts = []
+            skipped_contacts = []
             self._last_verified_idx = 0  # Fix #8: reset verified index tracker
             self.log("Starting contact import pipeline (real-time validation active)...", level="SUCCESS")
 
@@ -2688,6 +2802,24 @@ class AgilicoImporterApp:
                     self.status_detail_var.set(f"Test Run: Processing contact {idx} of {len(contacts_to_import)}: {contact['display_name']} ({pct}%)")
                 else:
                     self.status_detail_var.set(f"Processing contact {idx} of {len(contacts_to_import)}: {contact['display_name']} ({pct}%)")
+
+                # Pre-check: Is contact already present on customer portal?
+                if self._check_contact_exists_on_portal(contact, contacts_url):
+                    self.log(
+                        f"[SKIPPED - ALREADY EXISTS] Contact '{contact['display_name']}' (Row {contact['row_num']}) "
+                        f"already exists on the portal. Skipped to prevent duplicate creation.",
+                        level="WARNING",
+                    )
+                    skipped_contacts.append({
+                        "row_num": contact.get("row_num", idx),
+                        "first_name": contact.get("first_name", ""),
+                        "last_name": contact.get("last_name", ""),
+                        "display_name": contact.get("display_name", ""),
+                        "number": contact.get("number", ""),
+                        "reason": "Already exists on customer portal",
+                    })
+                    self._last_verified_idx = idx
+                    continue
 
                 self.log(
                     f"[{idx}/{len(contacts_to_import)}] Processing: {contact['display_name']} "
@@ -2941,27 +3073,32 @@ class AgilicoImporterApp:
 
                 self.log("=" * 45, level="MUTED")
                 self.log(f"Final Reconciliation: {len(verified_all)} verified present, {len(missing_all)} missing.", level="INFO")
+                if skipped_contacts:
+                    self.log(f"Skipped Contacts: {len(skipped_contacts)} contact(s) already existed on portal and were skipped.", level="INFO")
+                    self._export_skipped_contacts(skipped_contacts, csv_path)
 
                 if not missing_all:
+                    added_count = len(contacts_to_import) - len(skipped_contacts)
                     if is_test_run:
-                        self.status_detail_var.set(f"✓ Test Run Complete! All {len(contacts_to_import)} test contacts verified.")
-                        self.log(f"Test Run Complete! Successfully imported and verified {len(contacts_to_import)} contact(s) on the portal.", level="SUCCESS")
-                        messagebox.showinfo(
-                            "Test Run Successful",
+                        self.status_detail_var.set(f"✓ Test Run Complete! {added_count} added, {len(skipped_contacts)} skipped (already on portal).")
+                        self.log(f"Test Run Complete! Successfully processed {len(contacts_to_import)} contact(s) ({added_count} added, {len(skipped_contacts)} skipped).", level="SUCCESS")
+                        msg = (
                             f"✓ Test Run Completed Successfully!\n\n"
-                            f"Created and verified {len(contacts_to_import)} of {total_in_csv} contacts on the live customer portal.\n\n"
+                            f"• {added_count} new contact(s) added to portal\n"
+                            f"• {len(skipped_contacts)} contact(s) skipped (already existed on portal)\n\n"
                             f"The remaining {total_in_csv - len(contacts_to_import)} contacts in the CSV were untouched.\n\n"
-                            f"You are now ready to run the full import by setting Import Limit to 'All Contacts'.",
-                            parent=self.root,
+                            f"You are now ready to run the full import by setting Import Limit to 'All Contacts'."
                         )
+                        messagebox.showinfo("Test Run Successful", msg, parent=self.root)
                     else:
-                        self.status_detail_var.set(f"Complete! All {total_in_csv} contacts verified on portal.")
-                        self.log(f"Import Complete! All {total_in_csv} contacts successfully added and verified in real time.", level="SUCCESS")
-                        messagebox.showinfo(
-                            "Import Complete & Verified",
-                            f"All {total_in_csv} contacts from CSV have been successfully added and verified in real time on the customer portal!",
-                            parent=self.root,
+                        self.status_detail_var.set(f"Complete! {added_count} added, {len(skipped_contacts)} skipped (already on portal).")
+                        self.log(f"Import Complete! Successfully processed all {total_in_csv} contacts ({added_count} added, {len(skipped_contacts)} skipped).", level="SUCCESS")
+                        msg = (
+                            f"All {total_in_csv} contacts from CSV have been processed and verified!\n\n"
+                            f"• {added_count} new contact(s) added to portal\n"
+                            f"• {len(skipped_contacts)} contact(s) skipped (already existed on portal)"
                         )
+                        messagebox.showinfo("Import Complete & Verified", msg, parent=self.root)
                 else:
                     self.status_detail_var.set(f"Completed with {len(missing_all)} missing during final check.")
                     missing_str = "\n".join([f"• {m}" for m in missing_all[:10]])
