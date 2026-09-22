@@ -7,6 +7,7 @@ import re
 import time
 import queue
 import shutil
+import ctypes
 import threading
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
@@ -79,6 +80,11 @@ class AgilicoImporterApp:
     
     # Hardcoded Portal Endpoint
     PORTAL_BASE_URL = "https://customerportal.hp2k.co.uk/"
+
+    # Windows Power Management Execution State Flags (Prevents Sleep/Standby/Display Turn-Off)
+    ES_CONTINUOUS = 0x80000000
+    ES_SYSTEM_REQUIRED = 0x00000001
+    ES_DISPLAY_REQUIRED = 0x00000002
 
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -849,6 +855,9 @@ class AgilicoImporterApp:
         # Fix #15: stop log consumer before destroy
         self._log_consumer_active = False
 
+        # Release any active Windows sleep prevention lock
+        self._restore_sleep()
+
         # Fix #2: use driver lock to prevent race condition with background thread
         with self._driver_lock:
             if self.driver:
@@ -859,6 +868,25 @@ class AgilicoImporterApp:
                 self.driver = None
 
         self.root.destroy()
+
+    def _prevent_sleep(self):
+        """Informs Windows that an active automated import task is running, preventing system sleep, standby, or display turn-off."""
+        if sys.platform.startswith("win"):
+            try:
+                ctypes.windll.kernel32.SetThreadExecutionState(
+                    self.ES_CONTINUOUS | self.ES_SYSTEM_REQUIRED | self.ES_DISPLAY_REQUIRED
+                )
+                self.log("🛡️ Active Workload: Windows Sleep & Standby prevention enabled.", level="INFO")
+            except Exception:
+                pass
+
+    def _restore_sleep(self):
+        """Releases the execution state lock and restores standard Windows power management."""
+        if sys.platform.startswith("win"):
+            try:
+                ctypes.windll.kernel32.SetThreadExecutionState(self.ES_CONTINUOUS)
+            except Exception:
+                pass
 
     def _load_saved_config(self):
         """Loads non-credential UI preferences (browser choice, import limit) from JSON config file.
@@ -1819,6 +1847,7 @@ class AgilicoImporterApp:
         """Performs pre-flight authentication and GDPR tenant lockout verification without importing contacts."""
         # Zero out password from GUI memory immediately
         self.root.after(0, lambda: self.password_var.set(""))
+        self._prevent_sleep()
         driver = None
         try:
             self.log("=" * 60, level="MUTED")
@@ -1869,6 +1898,7 @@ class AgilicoImporterApp:
             self.status_detail_var.set("Test Login Failed.")
             messagebox.showerror("Pre-Flight Test Failed", f"Could not authenticate or verify account:\n{str(ex)}", parent=self.root)
         finally:
+            self._restore_sleep()
             # Fix #2: use driver lock on quit
             with self._driver_lock:
                 if driver:
@@ -2971,6 +3001,7 @@ class AgilicoImporterApp:
         self.log("Starting Agilico Contact Importer - Lite workflow...", level="INFO")
         # Fix #3: clear password from memory — we already have it in the local variable
         self.root.after(0, lambda: self.password_var.set(""))
+        self._prevent_sleep()
         try:
             # Step 1: Read CSV
             self.log(f"Reading contacts from: {csv_path}", level="INFO")
@@ -3429,6 +3460,7 @@ class AgilicoImporterApp:
             self.status_detail_var.set("Unexpected Error occurred.")
             messagebox.showerror("Error", f"An unexpected error occurred:\n{str(e)}", parent=self.root)
         finally:
+            self._restore_sleep()
             # Fix #2: use driver lock when quitting driver at end of automation
             with self._driver_lock:
                 if self.driver:
@@ -3436,7 +3468,7 @@ class AgilicoImporterApp:
                         self.driver.quit()
                     except Exception:
                         pass
-                    self.driver = None
+                self.driver = None
             self.root.after(0, lambda: self._set_ui_state(False))
 
 
