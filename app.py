@@ -517,7 +517,7 @@ class AgilicoImporterApp:
         self.status_detail_label = tk.Label(
             status_timer_frame,
             textvariable=self.status_detail_var,
-            font=("Segoe UI", 8),
+            font=("Segoe UI", 8, "bold"),
             fg=self.COLOR_TEXT_MUTED,
             bg=self.COLOR_CARD_BG,
             anchor="w",
@@ -528,58 +528,58 @@ class AgilicoImporterApp:
         timer_strip = tk.Frame(status_timer_frame, bg=self.COLOR_CARD_BG)
         timer_strip.pack(side=tk.RIGHT)
 
-        # Elapsed Timer Pill
+        # Elapsed Timer Badge (High-Contrast Slate)
         elapsed_pill = tk.Frame(
             timer_strip,
-            bg="#f1f5f9",
-            highlightbackground="#cbd5e1",
+            bg="#0f172a",
+            highlightbackground="#334155",
             highlightthickness=1,
-            padx=7,
-            pady=2,
+            padx=10,
+            pady=4,
         )
-        elapsed_pill.pack(side=tk.LEFT, padx=(0, 6))
+        elapsed_pill.pack(side=tk.LEFT, padx=(0, 8))
 
         tk.Label(
             elapsed_pill,
             text="⏱ Elapsed:",
-            font=("Segoe UI", 7, "bold"),
-            fg="#64748b",
-            bg="#f1f5f9",
-        ).pack(side=tk.LEFT, padx=(0, 4))
+            font=("Segoe UI", 8, "bold"),
+            fg="#94a3b8",
+            bg="#0f172a",
+        ).pack(side=tk.LEFT, padx=(0, 6))
 
         tk.Label(
             elapsed_pill,
             textvariable=self.elapsed_time_var,
-            font=("Consolas", 8, "bold"),
-            fg="#1e293b",
-            bg="#f1f5f9",
+            font=("Consolas", 11, "bold"),
+            fg="#f8fafc",
+            bg="#0f172a",
         ).pack(side=tk.LEFT)
 
-        # ETA Timer Pill (15s per contact benchmark)
+        # ETA Timer Badge (High-Contrast Deep Cyan / Sky Blue)
         eta_pill = tk.Frame(
             timer_strip,
-            bg="#f0f9ff",
-            highlightbackground="#bae6fd",
+            bg="#0c4a6e",
+            highlightbackground="#0284c7",
             highlightthickness=1,
-            padx=7,
-            pady=2,
+            padx=10,
+            pady=4,
         )
         eta_pill.pack(side=tk.LEFT)
 
         tk.Label(
             eta_pill,
             text="⏳ Est. Remaining (ETA):",
-            font=("Segoe UI", 7, "bold"),
-            fg="#0284c7",
-            bg="#f0f9ff",
-        ).pack(side=tk.LEFT, padx=(0, 4))
+            font=("Segoe UI", 8, "bold"),
+            fg="#7dd3fc",
+            bg="#0c4a6e",
+        ).pack(side=tk.LEFT, padx=(0, 6))
 
         tk.Label(
             eta_pill,
             textvariable=self.eta_time_var,
-            font=("Consolas", 8, "bold"),
-            fg="#0369a1",
-            bg="#f0f9ff",
+            font=("Consolas", 11, "bold"),
+            fg="#38bdf8",
+            bg="#0c4a6e",
         ).pack(side=tk.LEFT)
 
         # -------------------------------------------------------------------------
