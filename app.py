@@ -118,8 +118,12 @@ class AgilicoImporterApp:
         # Live Metric Stat Badges (MSP Toolkit style)
         self.stat_total_contacts_var = tk.StringVar(value="0")
         self.stat_ready_contacts_var = tk.StringVar(value="0")
+        self.stat_ready_sub_var = tk.StringVar(value="ready to import")
         self.stat_dup_contacts_var = tk.StringVar(value="0")
+        self.stat_dup_detail_var = tk.StringVar(value="0 detected")
         self.stat_gdpr_status_var = tk.StringVar(value="ENFORCED")
+        self.live_skipped_contacts = []
+        self.csv_duplicate_contacts = []
 
         self.is_running = False
         self.stop_requested = False
@@ -271,32 +275,43 @@ class AgilicoImporterApp:
         metrics_frame.columnconfigure(3, weight=1, uniform="stat")
 
         # Metric 1: TOTAL CONTACTS
-        m1 = tk.Frame(metrics_frame, bg="#f8fafc", highlightbackground="#e2e8f0", highlightthickness=1, padx=12, pady=6)
+        m1 = tk.Frame(metrics_frame, bg="#f8fafc", highlightbackground="#e2e8f0", highlightthickness=1, padx=10, pady=5)
         m1.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
         tk.Label(m1, text="TOTAL CONTACTS", font=("Segoe UI", 7, "bold"), fg="#64748b", bg="#f8fafc").pack(anchor="w")
-        self.lbl_stat_total = tk.Label(m1, textvariable=self.stat_total_contacts_var, font=("Segoe UI", 14, "bold"), fg=self.COLOR_TEXT_DARK, bg="#f8fafc")
+        self.lbl_stat_total = tk.Label(m1, textvariable=self.stat_total_contacts_var, font=("Segoe UI", 13, "bold"), fg=self.COLOR_TEXT_DARK, bg="#f8fafc")
         self.lbl_stat_total.pack(anchor="w", pady=(1, 0))
+        tk.Label(m1, text="from CSV file", font=("Segoe UI", 7), fg="#94a3b8", bg="#f8fafc").pack(anchor="w")
 
         # Metric 2: VALID / UNIQUE
-        m2 = tk.Frame(metrics_frame, bg="#f0fdf4", highlightbackground="#bbf7d0", highlightthickness=1, padx=12, pady=6)
+        m2 = tk.Frame(metrics_frame, bg="#f0fdf4", highlightbackground="#bbf7d0", highlightthickness=1, padx=10, pady=5)
         m2.grid(row=0, column=1, sticky="nsew", padx=(0, 6))
         tk.Label(m2, text="VALID / UNIQUE", font=("Segoe UI", 7, "bold"), fg="#16a34a", bg="#f0fdf4").pack(anchor="w")
-        self.lbl_stat_ready = tk.Label(m2, textvariable=self.stat_ready_contacts_var, font=("Segoe UI", 14, "bold"), fg="#16a34a", bg="#f0fdf4")
+        self.lbl_stat_ready = tk.Label(m2, textvariable=self.stat_ready_contacts_var, font=("Segoe UI", 13, "bold"), fg="#16a34a", bg="#f0fdf4")
         self.lbl_stat_ready.pack(anchor="w", pady=(1, 0))
+        self.lbl_stat_ready_sub = tk.Label(m2, textvariable=self.stat_ready_sub_var, font=("Segoe UI", 7), fg="#16a34a", bg="#f0fdf4")
+        self.lbl_stat_ready_sub.pack(anchor="w")
 
-        # Metric 3: DUPLICATES / SKIPPED
-        m3 = tk.Frame(metrics_frame, bg="#fef2f2", highlightbackground="#fecaca", highlightthickness=1, padx=12, pady=6)
+        # Metric 3: DUPLICATES / SKIPPED (Amber / Orange Alert)
+        m3 = tk.Frame(metrics_frame, bg="#fffbeb", highlightbackground="#fde68a", highlightthickness=1, padx=10, pady=5, cursor="hand2")
         m3.grid(row=0, column=2, sticky="nsew", padx=(0, 6))
-        tk.Label(m3, text="DUPLICATES / SKIPPED", font=("Segoe UI", 7, "bold"), fg="#dc2626", bg="#fef2f2").pack(anchor="w")
-        self.lbl_stat_dup = tk.Label(m3, textvariable=self.stat_dup_contacts_var, font=("Segoe UI", 14, "bold"), fg="#dc2626", bg="#fef2f2")
+        self.lbl_stat_dup_title = tk.Label(m3, text="DUPLICATES / SKIPPED", font=("Segoe UI", 7, "bold"), fg="#b45309", bg="#fffbeb", cursor="hand2")
+        self.lbl_stat_dup_title.pack(anchor="w")
+        self.lbl_stat_dup = tk.Label(m3, textvariable=self.stat_dup_contacts_var, font=("Segoe UI", 13, "bold"), fg="#d97706", bg="#fffbeb", cursor="hand2")
         self.lbl_stat_dup.pack(anchor="w", pady=(1, 0))
+        self.lbl_stat_dup_detail = tk.Label(m3, textvariable=self.stat_dup_detail_var, font=("Segoe UI", 7), fg="#b45309", bg="#fffbeb", cursor="hand2")
+        self.lbl_stat_dup_detail.pack(anchor="w")
+
+        # Click handler on Amber card opens interactive skipped contacts review modal
+        for w in (m3, self.lbl_stat_dup_title, self.lbl_stat_dup, self.lbl_stat_dup_detail):
+            w.bind("<Button-1>", lambda e: self._open_skipped_contacts_modal())
 
         # Metric 4: GDPR ISOLATION
-        m4 = tk.Frame(metrics_frame, bg="#eff6ff", highlightbackground="#bfdbfe", highlightthickness=1, padx=12, pady=6)
+        m4 = tk.Frame(metrics_frame, bg="#eff6ff", highlightbackground="#bfdbfe", highlightthickness=1, padx=10, pady=5)
         m4.grid(row=0, column=3, sticky="nsew")
         tk.Label(m4, text="GDPR ISOLATION", font=("Segoe UI", 7, "bold"), fg="#2563eb", bg="#eff6ff").pack(anchor="w")
         self.lbl_stat_gdpr = tk.Label(m4, textvariable=self.stat_gdpr_status_var, font=("Segoe UI", 11, "bold"), fg="#2563eb", bg="#eff6ff")
         self.lbl_stat_gdpr.pack(anchor="w", pady=(3, 0))
+        tk.Label(m4, text="Single-tenant only", font=("Segoe UI", 7), fg="#3b82f6", bg="#eff6ff").pack(anchor="w")
 
         # File Selection & CSV Inspector Strip
         file_strip = tk.Frame(top_card, bg=self.COLOR_CARD_BG)
@@ -780,11 +795,12 @@ class AgilicoImporterApp:
         )
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
-        # High-contrast color tags with crisp white writing
+        # High-contrast color tags with crisp white writing and Amber/Orange alerts
         self.log_text.tag_config("INFO", foreground="#ffffff")
         self.log_text.tag_config("TIMESTAMP", foreground="#94a3b8")
         self.log_text.tag_config("SUCCESS", foreground="#4ade80")
-        self.log_text.tag_config("WARNING", foreground="#fde047")
+        self.log_text.tag_config("WARNING", foreground="#fbbf24")
+        self.log_text.tag_config("SKIPPED", foreground="#fb923c")
         self.log_text.tag_config("ERROR", foreground="#f87171")
         self.log_text.tag_config("MUTED", foreground="#cbd5e1")
 
@@ -938,10 +954,12 @@ class AgilicoImporterApp:
                 level="WARNING",
             )
 
+        self.csv_duplicate_contacts = []
+        self.live_skipped_contacts = []
         seen_contacts = set()
         dup_contacts = 0
         no_number_count = 0  # Fix #5: track contacts missing a phone number
-        for c in contacts:
+        for idx_c, c in enumerate(contacts, start=1):
             fn = (c.get("first_name") or "").strip().lower()
             ln = (c.get("last_name") or "").strip().lower()
             dn = (c.get("display_name") or "").strip().lower()
@@ -955,6 +973,14 @@ class AgilicoImporterApp:
             contact_key = (fn, ln, dn, num)
             if contact_key in seen_contacts:
                 dup_contacts += 1
+                self.csv_duplicate_contacts.append({
+                    "row_num": c.get("row_num", idx_c),
+                    "first_name": c.get("first_name", ""),
+                    "last_name": c.get("last_name", ""),
+                    "display_name": c.get("display_name", ""),
+                    "number": c.get("number", ""),
+                    "reason": "Exact duplicate entry in CSV",
+                })
             else:
                 seen_contacts.add(contact_key)
 
@@ -967,7 +993,9 @@ class AgilicoImporterApp:
         self.file_name_display_var.set(stats_str)
         self.stat_total_contacts_var.set(str(len(contacts)))
         self.stat_ready_contacts_var.set(str(max(0, len(contacts) - dup_contacts)))
+        self.stat_ready_sub_var.set("ready to import")
         self.stat_dup_contacts_var.set(str(dup_contacts))
+        self.stat_dup_detail_var.set(f"{dup_contacts} in CSV" if dup_contacts > 0 else "0 in CSV")
         self.status_detail_var.set(f"Loaded {len(contacts)} contacts. {dup_contacts} duplicate entries. {no_number_count} missing number. Click 'CSV Inspector' to review.")
         self.preview_btn.config(state=tk.NORMAL)
 
@@ -1186,6 +1214,149 @@ class AgilicoImporterApp:
 
         fn_entry.focus_set()
 
+    def _open_skipped_contacts_modal(self):
+        """Opens an interactive modal dialog showing all duplicate and skipped contacts with live updates and CSV export option."""
+        modal = tk.Toplevel(self.root)
+        modal.title("Skipped & Duplicate Contacts Review")
+        modal.geometry("840x480")
+        modal.minsize(700, 380)
+        modal.transient(self.root)
+        modal.grab_set()
+
+        # Header with Amber / Orange theme
+        hdr = tk.Frame(modal, bg="#78350f", padx=16, pady=12)
+        hdr.pack(fill=tk.X)
+
+        tk.Label(
+            hdr,
+            text="⚠️  Skipped & Duplicate Contacts Review",
+            font=("Segoe UI", 12, "bold"),
+            fg="#fef3c7",
+            bg="#78350f",
+        ).pack(anchor="w")
+
+        tk.Label(
+            hdr,
+            text="Live overview of contacts identified as duplicates in CSV or already present on the customer portal.",
+            font=("Segoe UI", 8),
+            fg="#fde68a",
+            bg="#78350f",
+        ).pack(anchor="w", pady=(2, 0))
+
+        # Body Frame
+        body = tk.Frame(modal, bg=self.COLOR_APP_BG, padx=14, pady=10)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        cols = ("num", "row", "name", "first_name", "last_name", "phone", "reason")
+        tree = ttk.Treeview(body, columns=cols, show="headings", selectmode="browse")
+
+        tree.heading("num", text="#")
+        tree.heading("row", text="CSV Row")
+        tree.heading("name", text="Display Name")
+        tree.heading("first_name", text="First Name")
+        tree.heading("last_name", text="Last Name")
+        tree.heading("phone", text="Number")
+        tree.heading("reason", text="Skipped Reason / Detection")
+
+        tree.column("num", width=35, anchor="center")
+        tree.column("row", width=65, anchor="center")
+        tree.column("name", width=160, anchor="w")
+        tree.column("first_name", width=100, anchor="w")
+        tree.column("last_name", width=100, anchor="w")
+        tree.column("phone", width=110, anchor="w")
+        tree.column("reason", width=240, anchor="w")
+
+        scroll = ttk.Scrollbar(body, orient=tk.VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        tree.tag_configure("skipped_item", background="#fffbeb", foreground="#92400e")
+        tree.tag_configure("empty_item", background="#ffffff", foreground="#64748b")
+
+        # Gather all duplicate / skipped records
+        all_skipped = []
+        for c in getattr(self, "csv_duplicate_contacts", []):
+            all_skipped.append({**c, "source": "CSV Duplicate"})
+        for c in getattr(self, "live_skipped_contacts", []):
+            all_skipped.append({**c, "source": "Portal Existing"})
+
+        if not all_skipped:
+            tree.insert(
+                "",
+                tk.END,
+                values=("—", "—", "No duplicate or skipped contacts detected", "—", "—", "—", "All contacts clear for import"),
+                tags=("empty_item",),
+            )
+        else:
+            for i, c in enumerate(all_skipped, start=1):
+                tree.insert(
+                    "",
+                    tk.END,
+                    values=(
+                        i,
+                        c.get("row_num", "—"),
+                        c.get("display_name", ""),
+                        c.get("first_name", ""),
+                        c.get("last_name", ""),
+                        c.get("number", "—"),
+                        c.get("reason", "Already exists on customer portal"),
+                    ),
+                    tags=("skipped_item",),
+                )
+
+        # Footer
+        footer = tk.Frame(modal, bg="#ffffff", padx=14, pady=10, highlightbackground=self.COLOR_BORDER, highlightthickness=1)
+        footer.pack(fill=tk.X, side=tk.BOTTOM)
+
+        count_text = f"Total Skipped / Duplicate Contacts: {len(all_skipped)}" if all_skipped else "0 skipped contacts"
+        tk.Label(
+            footer,
+            text=count_text,
+            font=("Segoe UI", 9, "bold"),
+            fg="#b45309",
+            bg="#ffffff",
+        ).pack(side=tk.LEFT)
+
+        tk.Button(
+            footer,
+            text="Close",
+            command=modal.destroy,
+            font=("Segoe UI", 8, "bold"),
+            bg=self.COLOR_SIDEBAR_BG,
+            fg="#ffffff",
+            activebackground=self.COLOR_SIDEBAR_HOVER,
+            activeforeground="#ffffff",
+            padx=14,
+            pady=4,
+            relief=tk.FLAT,
+            bd=0,
+            cursor="hand2",
+        ).pack(side=tk.RIGHT, padx=(6, 0))
+
+        if all_skipped:
+            def export_this_list():
+                csv_path = self.csv_path_var.get().strip().strip('"').strip("'")
+                res = self._export_skipped_contacts(all_skipped, csv_path)
+                if res:
+                    modal.destroy()
+
+            tk.Button(
+                footer,
+                text="💾  Export Skipped CSV",
+                command=export_this_list,
+                font=("Segoe UI", 8, "bold"),
+                bg="#f59e0b",
+                fg="#ffffff",
+                activebackground="#d97706",
+                activeforeground="#ffffff",
+                padx=12,
+                pady=4,
+                relief=tk.FLAT,
+                bd=0,
+                cursor="hand2",
+            ).pack(side=tk.RIGHT)
+
     def _open_csv_preview_modal(self):
         """Opens an interactive modal preview dialog displaying all parsed contacts, duplicates, and format status."""
         csv_path = self.csv_path_var.get().strip().strip('"').strip("'")
@@ -1255,7 +1426,7 @@ class AgilicoImporterApp:
         tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
-        tree.tag_configure("dup", background="#fee2e2", foreground="#991b1b")
+        tree.tag_configure("dup", background="#fef3c7", foreground="#92400e")
         tree.tag_configure("no_num", background="#fef9c3", foreground="#854d0e")
         tree.tag_configure("normal", background="#ffffff")
 
@@ -1519,7 +1690,7 @@ class AgilicoImporterApp:
                 time_str, msg, level = self.log_queue.get_nowait()
                 self.log_text.config(state=tk.NORMAL)
                 self.log_text.insert(tk.END, f"[{time_str}] ", "TIMESTAMP")
-                if level in ("SUCCESS", "WARNING", "ERROR"):
+                if level in ("SUCCESS", "WARNING", "ERROR", "SKIPPED"):
                     self.log_text.insert(tk.END, f"[{level}] ", level)
                     self.log_text.insert(tk.END, f"{msg}\n", "INFO")
                 else:
@@ -2868,6 +3039,7 @@ class AgilicoImporterApp:
 
             self.failed_contacts = []
             skipped_contacts = []
+            self.live_skipped_contacts = []
             self._last_verified_idx = 0  # Fix #8: reset verified index tracker
             pacing_delay = self._get_pacing_delay()
             self.log(f"Starting contact import pipeline (pacing: {pacing_delay:.1f}s safety delay, real-time validation active)...", level="SUCCESS")
@@ -2897,19 +3069,30 @@ class AgilicoImporterApp:
                 # Pre-check: Is contact already present on customer portal?
                 if self._check_contact_exists_on_portal(contact, contacts_url):
                     self._check_stop()
-                    self.log(
-                        f"[SKIPPED - ALREADY EXISTS] Contact '{contact['display_name']}' (Row {contact['row_num']}) "
-                        f"already exists on the portal. Skipped to prevent duplicate creation.",
-                        level="WARNING",
-                    )
-                    skipped_contacts.append({
+                    skipped_record = {
                         "row_num": contact.get("row_num", idx),
                         "first_name": contact.get("first_name", ""),
                         "last_name": contact.get("last_name", ""),
                         "display_name": contact.get("display_name", ""),
                         "number": contact.get("number", ""),
                         "reason": "Already exists on customer portal",
-                    })
+                    }
+                    skipped_contacts.append(skipped_record)
+                    self.live_skipped_contacts.append(skipped_record)
+
+                    # Relay live information to Amber/Orange stats and UI labels
+                    csv_dups_count = len(getattr(self, "csv_duplicate_contacts", []))
+                    total_skipped_live = len(skipped_contacts) + csv_dups_count
+                    self.stat_dup_contacts_var.set(str(total_skipped_live))
+                    self.stat_dup_detail_var.set(f"Live: {len(skipped_contacts)} on portal")
+                    self.stat_ready_contacts_var.set(str(max(0, len(contacts_to_import) - len(skipped_contacts))))
+
+                    self.log(
+                        f"[SKIPPED - ALREADY EXISTS] Contact '{contact['display_name']}' (Row {contact['row_num']}) "
+                        f"already exists on the portal. Skipped to prevent duplicate creation.",
+                        level="SKIPPED",
+                    )
+                    self.status_detail_var.set(f"Skipped duplicate: {contact['display_name']} ({len(skipped_contacts)} skipped total so far)")
                     self._last_verified_idx = idx
                     self._check_stop()
                     continue
@@ -3186,6 +3369,7 @@ class AgilicoImporterApp:
                 self.log("=" * 45, level="MUTED")
                 self.log(f"Final Reconciliation: {len(verified_all)} verified present, {len(missing_all)} missing.", level="INFO")
                 if skipped_contacts:
+                    self.stat_dup_detail_var.set(f"{len(skipped_contacts)} skipped on portal")
                     self.log(f"Skipped Contacts: {len(skipped_contacts)} contact(s) already existed on portal and were skipped.", level="INFO")
                     self._export_skipped_contacts(skipped_contacts, csv_path)
 
