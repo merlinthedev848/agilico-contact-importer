@@ -563,8 +563,11 @@ class AgilicoImporterApp:
             textvariable=self.browser_var,
             values=[
                 "Microsoft Edge (Default)",
+                "Microsoft Edge (Headless - Lock-Safe)",
                 "Google Chrome",
+                "Google Chrome (Headless - Lock-Safe)",
                 "Mozilla Firefox",
+                "Mozilla Firefox (Headless - Lock-Safe)",
                 "Auto-Detect (Any Available)",
             ],
             state="readonly",
@@ -2040,32 +2043,51 @@ class AgilicoImporterApp:
         return contacts
 
     def _create_browser_driver(self, browser_choice: str):
-        """Attempts to launch the user's selected or available browser (Edge, Chrome, Firefox)."""
+        """Attempts to launch the user's selected or available browser (Edge, Chrome, Firefox) with Lock-Safe Anti-Throttling safeguards."""
         b_lower = browser_choice.lower()
+        is_headless = "headless" in b_lower or "lock-safe" in b_lower
 
         def try_edge():
             opts = EdgeOptions()
             opts.add_argument("--start-maximized")
+            opts.add_argument("--window-size=1920,1080")
             opts.add_argument("--disable-notifications")
             opts.add_argument("--disable-popup-blocking")
             opts.add_argument("--remote-allow-origins=*")
             opts.add_argument("--ignore-certificate-errors")
+            # Anti-throttling & Lock-Safe flags: prevents Windows Lock Screen (Win+L) occlusion throttling
+            opts.add_argument("--disable-background-timer-throttling")
+            opts.add_argument("--disable-backgrounding-occluded-windows")
+            opts.add_argument("--disable-renderer-backgrounding")
+            opts.add_argument("--disable-features=CalculateNativeWinOcclusion")
             opts.add_argument("--disable-blink-features=AutomationControlled")
             opts.add_experimental_option("excludeSwitches", ["enable-automation"])
             opts.add_experimental_option("useAutomationExtension", False)
-            return webdriver.Edge(options=opts), "Microsoft Edge"
+            if is_headless:
+                opts.add_argument("--headless=new")
+                opts.add_argument("--disable-gpu")
+            return webdriver.Edge(options=opts), "Microsoft Edge" + (" (Headless / Lock-Safe)" if is_headless else "")
 
         def try_chrome():
             opts = ChromeOptions()
             opts.add_argument("--start-maximized")
+            opts.add_argument("--window-size=1920,1080")
             opts.add_argument("--disable-notifications")
             opts.add_argument("--disable-popup-blocking")
             opts.add_argument("--remote-allow-origins=*")
             opts.add_argument("--ignore-certificate-errors")
+            # Anti-throttling & Lock-Safe flags: prevents Windows Lock Screen (Win+L) occlusion throttling
+            opts.add_argument("--disable-background-timer-throttling")
+            opts.add_argument("--disable-backgrounding-occluded-windows")
+            opts.add_argument("--disable-renderer-backgrounding")
+            opts.add_argument("--disable-features=CalculateNativeWinOcclusion")
             opts.add_argument("--disable-blink-features=AutomationControlled")
             opts.add_experimental_option("excludeSwitches", ["enable-automation"])
             opts.add_experimental_option("useAutomationExtension", False)
-            return webdriver.Chrome(options=opts), "Google Chrome"
+            if is_headless:
+                opts.add_argument("--headless=new")
+                opts.add_argument("--disable-gpu")
+            return webdriver.Chrome(options=opts), "Google Chrome" + (" (Headless / Lock-Safe)" if is_headless else "")
 
         def try_firefox():
             opts = FirefoxOptions()
@@ -2073,7 +2095,12 @@ class AgilicoImporterApp:
             opts.set_preference("dom.webdriver.enabled", False)
             opts.set_preference("useAutomationExtension", False)
             opts.set_preference("dom.disable_beforeunload", True)
-            return webdriver.Firefox(options=opts), "Mozilla Firefox"
+            opts.set_preference("dom.min_background_timeout_value", 10)
+            opts.set_preference("dom.timeout.enable_budget_timer_throttling", False)
+            if is_headless:
+                opts.add_argument("-headless")
+                opts.add_argument("--window-size=1920,1080")
+            return webdriver.Firefox(options=opts), "Mozilla Firefox" + (" (Headless / Lock-Safe)" if is_headless else "")
 
         if "edge" in b_lower and "auto" not in b_lower:
             try:
