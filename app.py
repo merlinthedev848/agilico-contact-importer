@@ -60,6 +60,59 @@ def get_resource_path(relative_path: str) -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
 
 
+def normalize_phone_number(val: str) -> str:
+    """
+    Standardizes UK phone numbers stripped of leading 0 by Excel or formatted with +44/44,
+    while strictly preserving non-UK international numbers (e.g. +1..., +33..., +353..., 001..., etc.).
+    """
+    if val is None:
+        return ""
+    s = str(val).strip().strip('"').strip("'")
+    if not s:
+        return ""
+    
+    # Remove Excel float artifact (e.g., 101.0 -> 101)
+    if RE_EXCEL_FLOAT.match(s):
+        s = s[:-2]
+        
+    # Strictly preserve non-UK international numbers
+    if s.startswith("+") and not s.startswith(("+44", "+ 44")):
+        return s
+    if s.startswith("00") and not s.startswith("0044"):
+        return s
+        
+    # Extract digit sequences
+    digits = RE_DIGITS.findall(s)
+    clean_digits = "".join(digits)
+    if not clean_digits:
+        return s
+
+    # Case 1: UK numbers with international prefix 44 or 0044 (e.g. 443302003200 -> 03302003200)
+    if clean_digits.startswith("44") and len(clean_digits) in (11, 12, 13):
+        remainder = clean_digits[2:]
+        if remainder and remainder[0] in "123789":
+            return "0" + remainder
+    elif clean_digits.startswith("0044") and len(clean_digits) in (13, 14, 15):
+        remainder = clean_digits[4:]
+        if remainder and remainder[0] in "123789":
+            return "0" + remainder
+
+    # Case 2: Excel stripped leading 0 from 10-digit UK numbers (1, 2, 3, 7, 8, 9)
+    # e.g., 3302003200 -> 03302003200, 7967179287 -> 07967179287, 1580715404 -> 01580715404
+    if len(clean_digits) == 10 and clean_digits[0] in "123789":
+        return "0" + clean_digits
+
+    # Case 3: Excel stripped leading 0 from 9-digit UK numbers (e.g. 800123456 -> 0800123456)
+    if len(clean_digits) == 9 and clean_digits.startswith("800"):
+        return "0" + clean_digits
+
+    # Case 4: Already begins with 0
+    if clean_digits.startswith("0"):
+        return clean_digits
+
+    return s
+
+
 class ImportStoppedException(BaseException):
     """Raised when the user requests an immediate stop to abort all nested calls and loops instantly."""
     pass
@@ -1313,10 +1366,12 @@ class AgilicoImporterApp:
         type_detect_var = tk.StringVar(value="")
 
         def update_detected_type(*args):
-            num = RE_CLEAN_PHONE.sub("", num_var.get())
-            if not num:
+            raw_input = num_var.get()
+            normalized = normalize_phone_number(raw_input)
+            clean_digits = "".join(RE_DIGITS.findall(normalized))
+            if not clean_digits:
                 type_detect_var.set("No Number (Name Only)")
-            elif num.startswith(("07", "+447", "447", "00447")):
+            elif clean_digits.startswith("07") or normalized.startswith(("+447", "447", "00447")):
                 type_detect_var.set("📱 Detected: Mobile")
             else:
                 type_detect_var.set("☎️ Detected: Work Landline")
@@ -1371,7 +1426,7 @@ class AgilicoImporterApp:
             fn = fn_var.get().strip()
             ln = ln_var.get().strip()
             dn = dn_var.get().strip()
-            num = num_var.get().strip()
+            num = normalize_phone_number(num_var.get())
 
             if not fn and not ln and not dn and not num:
                 messagebox.showwarning("Incomplete", "Please enter at least a name or telephone number for this contact.", parent=dlg)
@@ -2210,7 +2265,7 @@ class AgilicoImporterApp:
             first_name = _clean_val(row.get(field_map.get("first_name", "First Name"), ""))
             last_name = _clean_val(row.get(field_map.get("last_name", "Last Name"), ""))
             display_name = _clean_val(row.get(field_map.get("display_name", "Display Name"), ""))
-            phone_number = _clean_val(row.get(field_map.get("number", "Number"), ""))
+            phone_number = normalize_phone_number(row.get(field_map.get("number", "Number"), ""))
 
             # Generate Display Name fallback if blank
             if not display_name:
@@ -3435,10 +3490,11 @@ class AgilicoImporterApp:
                                 self._check_stop()
 
                                 # Determine Type: 07XXXXXXXXX -> Mobile, non-07 -> Work
-                                clean_num = re.sub(r"[^\d+]", "", phone_number)
-                                if clean_num.startswith(("07", "+447", "447", "00447")):
-                                    target_type = "Mobile"
-                                set_target_type = "Work" if not clean_num.startswith(("07", "+447", "447", "00447")) else "Mobile"
+                                clean_num = RE_CLEAN_PHONE.sub("", phone_number)
+                                if clean_num.startswith("07") or phone_number.startswith(("+447", "447", "00447")):
+                                    set_target_type = "Mobile"
+                                else:
+                                    set_target_type = "Work"
 
                                 self.log(f"Selecting dropdown type '{set_target_type}' in <select id='ContactNumberTypeID'>...", level="INFO")
                                 selected = self._select_type_dropdown(self.driver, wait, set_target_type)
