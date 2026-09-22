@@ -133,6 +133,12 @@ class AgilicoImporterApp:
         self.live_skipped_contacts = []
         self.csv_duplicate_contacts = []
 
+        # Live Elapsed & ETA Timers (15s per contact benchmark)
+        self.elapsed_time_var = tk.StringVar(value="00:00:00")
+        self.eta_time_var = tk.StringVar(value="00:00:00")
+        self._import_start_time = None
+        self._timer_running = False
+
         self.is_running = False
         self.stop_requested = False
         self.import_thread = None
@@ -404,7 +410,7 @@ class AgilicoImporterApp:
         )
         self.preview_btn.pack(side=tk.LEFT)
 
-        # Progress Bar & Status Text
+        # Progress Bar & Live Status / Timers Row
         self.progressbar = ttk.Progressbar(
             top_card,
             style="Agilico.Horizontal.TProgressbar",
@@ -413,15 +419,76 @@ class AgilicoImporterApp:
         )
         self.progressbar.pack(fill=tk.X, pady=(4, 2))
 
+        status_timer_frame = tk.Frame(top_card, bg=self.COLOR_CARD_BG)
+        status_timer_frame.pack(fill=tk.X, pady=(2, 0))
+
         self.status_detail_label = tk.Label(
-            top_card,
+            status_timer_frame,
             textvariable=self.status_detail_var,
             font=("Segoe UI", 8),
             fg=self.COLOR_TEXT_MUTED,
             bg=self.COLOR_CARD_BG,
             anchor="w",
         )
-        self.status_detail_label.pack(fill=tk.X)
+        self.status_detail_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        # Live Timers Strip (Elapsed Stopwatch + 15s/contact ETA countdown)
+        timer_strip = tk.Frame(status_timer_frame, bg=self.COLOR_CARD_BG)
+        timer_strip.pack(side=tk.RIGHT)
+
+        # Elapsed Timer Pill
+        elapsed_pill = tk.Frame(
+            timer_strip,
+            bg="#f1f5f9",
+            highlightbackground="#cbd5e1",
+            highlightthickness=1,
+            padx=7,
+            pady=2,
+        )
+        elapsed_pill.pack(side=tk.LEFT, padx=(0, 6))
+
+        tk.Label(
+            elapsed_pill,
+            text="⏱ Elapsed:",
+            font=("Segoe UI", 7, "bold"),
+            fg="#64748b",
+            bg="#f1f5f9",
+        ).pack(side=tk.LEFT, padx=(0, 4))
+
+        tk.Label(
+            elapsed_pill,
+            textvariable=self.elapsed_time_var,
+            font=("Consolas", 8, "bold"),
+            fg="#1e293b",
+            bg="#f1f5f9",
+        ).pack(side=tk.LEFT)
+
+        # ETA Timer Pill (15s per contact benchmark)
+        eta_pill = tk.Frame(
+            timer_strip,
+            bg="#f0f9ff",
+            highlightbackground="#bae6fd",
+            highlightthickness=1,
+            padx=7,
+            pady=2,
+        )
+        eta_pill.pack(side=tk.LEFT)
+
+        tk.Label(
+            eta_pill,
+            text="⏳ Est. Remaining (ETA):",
+            font=("Segoe UI", 7, "bold"),
+            fg="#0284c7",
+            bg="#f0f9ff",
+        ).pack(side=tk.LEFT, padx=(0, 4))
+
+        tk.Label(
+            eta_pill,
+            textvariable=self.eta_time_var,
+            font=("Consolas", 8, "bold"),
+            fg="#0369a1",
+            bg="#f0f9ff",
+        ).pack(side=tk.LEFT)
 
         # -------------------------------------------------------------------------
         # BOTTOM ROW: 2 Dual Cards (Configuration & Activity Log)
@@ -944,6 +1011,24 @@ class AgilicoImporterApp:
         except Exception:
             pass
 
+    @staticmethod
+    def _format_time_hms(seconds: float) -> str:
+        """Formats a duration in seconds into HH:MM:SS format."""
+        if seconds is None or seconds < 0:
+            return "00:00:00"
+        total_sec = int(round(seconds))
+        hrs = total_sec // 3600
+        mins = (total_sec % 3600) // 60
+        secs = total_sec % 60
+        return f"{hrs:02d}:{mins:02d}:{secs:02d}"
+
+    def _update_live_timer(self):
+        """Updates the live elapsed time display every 500ms while import is active."""
+        if self._timer_running and self._import_start_time is not None:
+            elapsed = max(0.0, time.time() - self._import_start_time)
+            self.elapsed_time_var.set(self._format_time_hms(elapsed))
+            self.root.after(500, self._update_live_timer)
+
     def _get_pacing_delay(self) -> float:
         """Returns the configured safety delay in seconds based on user speed selection (defaults to 2.0s)."""
         val = (self.import_speed_var.get() or "").lower()
@@ -986,6 +1071,8 @@ class AgilicoImporterApp:
             self.file_name_display_var.set(f"📄 {base_name} (0 contacts found)")
             self.status_detail_var.set("Warning: No valid contact rows found in selected CSV.")
             self.preview_btn.config(state=tk.DISABLED)
+            self.eta_time_var.set("00:00:00")
+            self.elapsed_time_var.set("00:00:00")
             self.log(f"Warning: No valid contact rows found in '{file_path}'.", level="WARNING")
             return
 
@@ -1041,6 +1128,8 @@ class AgilicoImporterApp:
         self.stat_remaining_sub_var.set("left to process")
         self.stat_dup_contacts_var.set(str(dup_contacts))
         self.stat_dup_detail_var.set(f"{dup_contacts} in CSV" if dup_contacts > 0 else "0 in CSV")
+        self.eta_time_var.set(self._format_time_hms(len(contacts) * 15))
+        self.elapsed_time_var.set("00:00:00")
         self.status_detail_var.set(f"Loaded {len(contacts)} contacts. {dup_contacts} duplicate entries. {no_number_count} missing number. Click 'CSV Inspector' to review.")
         self.preview_btn.config(state=tk.NORMAL)
 
@@ -1050,7 +1139,7 @@ class AgilicoImporterApp:
                 f"Warning: {no_number_count} contact(s) have no phone number and will be imported as name-only.",
                 level="WARNING",
             )
-        self.log(f"Parsed CSV '{base_name}': {len(contacts)} contacts ({dup_contacts} duplicate entries, {no_number_count} missing number).", level="INFO")
+        self.log(f"Parsed CSV '{base_name}': {len(contacts)} contacts ({dup_contacts} duplicate entries, {no_number_count} missing number, Est. Duration: {self._format_time_hms(len(contacts) * 15)}).", level="INFO")
 
     def _save_contacts_to_csv(self, csv_path: str, contacts: list, parent=None) -> bool:
         """Saves current contact list back to CSV with automatic .bak backup and Excel lock handling."""
@@ -1952,6 +2041,10 @@ class AgilicoImporterApp:
         self.stop_requested = False
         self.progress_val_var.set(0)
         self.status_detail_var.set("Initializing automation workflow...")
+        self._import_start_time = time.time()
+        self._timer_running = True
+        self.elapsed_time_var.set("00:00:00")
+        self._update_live_timer()
 
         self.import_thread = threading.Thread(
             target=self._run_automation,
@@ -3116,7 +3209,8 @@ class AgilicoImporterApp:
             pacing_delay = self._get_pacing_delay()
             self.stat_remaining_contacts_var.set(str(len(contacts_to_import)))
             self.stat_remaining_sub_var.set(f"0 / {len(contacts_to_import)} done")
-            self.log(f"Starting contact import pipeline (pacing: {pacing_delay:.1f}s safety delay, real-time validation active)...", level="SUCCESS")
+            self.eta_time_var.set(self._format_time_hms(len(contacts_to_import) * 15))
+            self.log(f"Starting contact import pipeline (pacing: {pacing_delay:.1f}s safety delay, real-time validation active, Est. Duration: {self._format_time_hms(len(contacts_to_import) * 15)})...", level="SUCCESS")
 
             success_count = 0
             fail_count = 0
@@ -3161,10 +3255,11 @@ class AgilicoImporterApp:
                     self.stat_dup_detail_var.set(f"Live: {len(skipped_contacts)} on portal")
                     self.stat_ready_contacts_var.set(str(max(0, len(contacts_to_import) - len(skipped_contacts))))
 
-                    # Live update remaining contacts
+                    # Live update remaining contacts and ETA countdown
                     rem = len(contacts_to_import) - idx
                     self.stat_remaining_contacts_var.set(str(max(0, rem)))
                     self.stat_remaining_sub_var.set(f"{idx} / {len(contacts_to_import)} processed")
+                    self.eta_time_var.set(self._format_time_hms(max(0, rem) * 15))
 
                     self.log(
                         f"[SKIPPED - ALREADY EXISTS] Contact '{contact['display_name']}' (Row {contact['row_num']}) "
@@ -3407,6 +3502,7 @@ class AgilicoImporterApp:
                         rem = len(contacts_to_import) - idx
                         self.stat_remaining_contacts_var.set(str(max(0, rem)))
                         self.stat_remaining_sub_var.set(f"{idx} / {len(contacts_to_import)} processed")
+                        self.eta_time_var.set(self._format_time_hms(max(0, rem) * 15))
                         self.log(f"Successfully completed and verified contact {idx}/{len(contacts_to_import)}: {contact['display_name']}", level="SUCCESS")
 
                         # Safety pacing delay before next contact transaction to prevent server overload / network blips
@@ -3431,6 +3527,7 @@ class AgilicoImporterApp:
                             rem = len(contacts_to_import) - idx
                             self.stat_remaining_contacts_var.set(str(max(0, rem)))
                             self.stat_remaining_sub_var.set(f"{idx} / {len(contacts_to_import)} processed")
+                            self.eta_time_var.set(self._format_time_hms(max(0, rem) * 15))
                             err_msg = str(ex).splitlines()[0] if str(ex) else "Unknown error"
                             self.failed_contacts.append((contact.get("row_num", idx), contact.get("display_name", "Unknown"), err_msg))
                             self.log(f"Error processing row {contact['row_num']} ({contact['display_name']}): {err_msg}", level="ERROR")
@@ -3446,15 +3543,19 @@ class AgilicoImporterApp:
 
             # Step 8: Final Reconciliation & Completion
             if not self.stop_requested and not halted_by_validation:
+                self._timer_running = False
+                final_elapsed = self._format_time_hms(time.time() - self._import_start_time) if self._import_start_time else "00:00:00"
+                self.elapsed_time_var.set(final_elapsed)
+                self.eta_time_var.set("00:00:00")
                 self.progress_val_var.set(100)
                 self.stat_remaining_contacts_var.set("0")
                 self.stat_remaining_sub_var.set("all completed")
-                self.status_detail_var.set("Running final reconciliation...")
+                self.status_detail_var.set(f"Running final reconciliation (Elapsed: {final_elapsed})...")
 
                 verified_all, missing_all = self._reconcile_all_contacts(contacts_to_import, contacts_url)
 
                 self.log("=" * 45, level="MUTED")
-                self.log(f"Final Reconciliation: {len(verified_all)} verified present, {len(missing_all)} missing.", level="INFO")
+                self.log(f"Final Reconciliation: {len(verified_all)} verified present, {len(missing_all)} missing. Total Elapsed Time: {final_elapsed}.", level="INFO")
                 if skipped_contacts:
                     self.stat_dup_detail_var.set(f"{len(skipped_contacts)} skipped on portal")
                     self.log(f"Skipped Contacts: {len(skipped_contacts)} contact(s) already existed on portal and were skipped.", level="INFO")
@@ -3463,10 +3564,11 @@ class AgilicoImporterApp:
                 if not missing_all:
                     added_count = len(contacts_to_import) - len(skipped_contacts)
                     if is_test_run:
-                        self.status_detail_var.set(f"✓ Test Run Complete! {added_count} added, {len(skipped_contacts)} skipped (already on portal).")
-                        self.log(f"Test Run Complete! Successfully processed {len(contacts_to_import)} contact(s) ({added_count} added, {len(skipped_contacts)} skipped).", level="SUCCESS")
+                        self.status_detail_var.set(f"✓ Test Run Complete! {added_count} added, {len(skipped_contacts)} skipped in {final_elapsed}.")
+                        self.log(f"Test Run Complete! Successfully processed {len(contacts_to_import)} contact(s) in {final_elapsed} ({added_count} added, {len(skipped_contacts)} skipped).", level="SUCCESS")
                         msg = (
                             f"✓ Test Run Completed Successfully!\n\n"
+                            f"• Total Elapsed Time: {final_elapsed}\n"
                             f"• {added_count} new contact(s) added to portal\n"
                             f"• {len(skipped_contacts)} contact(s) skipped (already existed on portal)\n\n"
                             f"The remaining {total_in_csv - len(contacts_to_import)} contacts in the CSV were untouched.\n\n"
@@ -3474,51 +3576,67 @@ class AgilicoImporterApp:
                         )
                         messagebox.showinfo("Test Run Successful", msg, parent=self.root)
                     else:
-                        self.status_detail_var.set(f"Complete! {added_count} added, {len(skipped_contacts)} skipped (already on portal).")
-                        self.log(f"Import Complete! Successfully processed all {total_in_csv} contacts ({added_count} added, {len(skipped_contacts)} skipped).", level="SUCCESS")
+                        self.status_detail_var.set(f"Complete! {added_count} added, {len(skipped_contacts)} skipped in {final_elapsed}.")
+                        self.log(f"Import Complete! Successfully processed all {total_in_csv} contacts in {final_elapsed} ({added_count} added, {len(skipped_contacts)} skipped).", level="SUCCESS")
                         msg = (
                             f"All {total_in_csv} contacts from CSV have been processed and verified!\n\n"
+                            f"• Total Elapsed Time: {final_elapsed}\n"
                             f"• {added_count} new contact(s) added to portal\n"
                             f"• {len(skipped_contacts)} contact(s) skipped (already existed on portal)"
                         )
                         messagebox.showinfo("Import Complete & Verified", msg, parent=self.root)
                 else:
-                    self.status_detail_var.set(f"Completed with {len(missing_all)} missing during final check.")
+                    self.status_detail_var.set(f"Completed in {final_elapsed} with {len(missing_all)} missing during final check.")
                     missing_str = "\n".join([f"• {m}" for m in missing_all[:10]])
                     messagebox.showwarning(
                         "Import Complete - Reconciliation Discrepancy",
-                        f"Processed {len(contacts_to_import)} contacts, but {len(missing_all)} could not be confirmed during the final portal sweep:\n\n{missing_str}",
+                        f"Processed {len(contacts_to_import)} contacts in {final_elapsed}, but {len(missing_all)} could not be confirmed during the final portal sweep:\n\n{missing_str}",
                         parent=self.root,
                     )
             elif halted_by_validation:
-                self.status_detail_var.set(f"Halted on row {idx}: verification failed.")
+                self._timer_running = False
+                final_elapsed = self._format_time_hms(time.time() - self._import_start_time) if self._import_start_time else "00:00:00"
+                self.elapsed_time_var.set(final_elapsed)
+                self.status_detail_var.set(f"Halted on row {idx}: verification failed (Elapsed: {final_elapsed}).")
             elif self.stop_requested:
-                self.status_detail_var.set("Import stopped by user.")
+                self._timer_running = False
+                final_elapsed = self._format_time_hms(time.time() - self._import_start_time) if self._import_start_time else "00:00:00"
+                self.elapsed_time_var.set(final_elapsed)
+                self.status_detail_var.set(f"Import stopped by user (Elapsed: {final_elapsed}).")
 
         except ImportStoppedException:
+            self._timer_running = False
+            final_elapsed = self._format_time_hms(time.time() - self._import_start_time) if self._import_start_time else "00:00:00"
+            self.elapsed_time_var.set(final_elapsed)
             rem = len(contacts_to_import) - self._last_verified_idx
             self.stat_remaining_contacts_var.set(str(max(0, rem)))
             self.stat_remaining_sub_var.set("stopped")
-            self.log("⏹ Process stopped immediately by user.", level="WARNING")
-            self.status_detail_var.set("Import stopped by user.")
+            self.eta_time_var.set(self._format_time_hms(max(0, rem) * 15))
+            self.log(f"⏹ Process stopped immediately by user. Elapsed Time: {final_elapsed}.", level="WARNING")
+            self.status_detail_var.set(f"Import stopped by user (Elapsed: {final_elapsed}).")
             self._export_remaining_contacts(contacts_to_import, self._last_verified_idx, csv_path)
         except PermissionError as pe:
+            self._timer_running = False
             self.log(f"Security Alert: {str(pe)}", level="ERROR")
             self.status_detail_var.set("Security error: Multi-tenant or invalid login.")
             messagebox.showerror("GDPR Security Alert", str(pe), parent=self.root)
         except ConnectionResetError as cre:
+            self._timer_running = False
             self.log(f"Session Error: {str(cre)}", level="ERROR")
             self.status_detail_var.set("Session expired or logged out.")
             messagebox.showerror("Session Terminated", f"Customer portal session error:\n{str(cre)}", parent=self.root)
         except WebDriverException as wde:
+            self._timer_running = False
             self.log(f"WebDriver Exception: {str(wde)}", level="ERROR")
             self.status_detail_var.set("WebDriver Error occurred.")
             messagebox.showerror("WebDriver Error", f"Browser error occurred:\n{str(wde)}", parent=self.root)
         except Exception as e:
+            self._timer_running = False
             self.log(f"Unexpected error: {str(e)}", level="ERROR")
             self.status_detail_var.set("Unexpected Error occurred.")
             messagebox.showerror("Error", f"An unexpected error occurred:\n{str(e)}", parent=self.root)
         finally:
+            self._timer_running = False
             self._restore_sleep()
             # Fix #2: use driver lock when quitting driver at end of automation
             with self._driver_lock:
