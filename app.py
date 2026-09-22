@@ -125,6 +125,8 @@ class AgilicoImporterApp:
         self.stat_total_contacts_var = tk.StringVar(value="0")
         self.stat_ready_contacts_var = tk.StringVar(value="0")
         self.stat_ready_sub_var = tk.StringVar(value="ready to import")
+        self.stat_remaining_contacts_var = tk.StringVar(value="0")
+        self.stat_remaining_sub_var = tk.StringVar(value="left to process")
         self.stat_dup_contacts_var = tk.StringVar(value="0")
         self.stat_dup_detail_var = tk.StringVar(value="0 detected")
         self.stat_gdpr_status_var = tk.StringVar(value="ENFORCED")
@@ -272,52 +274,62 @@ class AgilicoImporterApp:
         )
         card1_desc.pack(anchor="w", pady=(2, 8))
 
-        # 4 Metric Badges
+        # 5 Metric Badges
         metrics_frame = tk.Frame(top_card, bg=self.COLOR_CARD_BG)
         metrics_frame.pack(fill=tk.X, pady=(0, 8))
         metrics_frame.columnconfigure(0, weight=1, uniform="stat")
         metrics_frame.columnconfigure(1, weight=1, uniform="stat")
         metrics_frame.columnconfigure(2, weight=1, uniform="stat")
         metrics_frame.columnconfigure(3, weight=1, uniform="stat")
+        metrics_frame.columnconfigure(4, weight=1, uniform="stat")
 
         # Metric 1: TOTAL CONTACTS
-        m1 = tk.Frame(metrics_frame, bg="#f8fafc", highlightbackground="#e2e8f0", highlightthickness=1, padx=10, pady=5)
-        m1.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        m1 = tk.Frame(metrics_frame, bg="#f8fafc", highlightbackground="#e2e8f0", highlightthickness=1, padx=8, pady=5)
+        m1.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
         tk.Label(m1, text="TOTAL CONTACTS", font=("Segoe UI", 7, "bold"), fg="#64748b", bg="#f8fafc").pack(anchor="w")
         self.lbl_stat_total = tk.Label(m1, textvariable=self.stat_total_contacts_var, font=("Segoe UI", 13, "bold"), fg=self.COLOR_TEXT_DARK, bg="#f8fafc")
         self.lbl_stat_total.pack(anchor="w", pady=(1, 0))
         tk.Label(m1, text="from CSV file", font=("Segoe UI", 7), fg="#94a3b8", bg="#f8fafc").pack(anchor="w")
 
         # Metric 2: VALID / UNIQUE
-        m2 = tk.Frame(metrics_frame, bg="#f0fdf4", highlightbackground="#bbf7d0", highlightthickness=1, padx=10, pady=5)
-        m2.grid(row=0, column=1, sticky="nsew", padx=(0, 6))
+        m2 = tk.Frame(metrics_frame, bg="#f0fdf4", highlightbackground="#bbf7d0", highlightthickness=1, padx=8, pady=5)
+        m2.grid(row=0, column=1, sticky="nsew", padx=(0, 5))
         tk.Label(m2, text="VALID / UNIQUE", font=("Segoe UI", 7, "bold"), fg="#16a34a", bg="#f0fdf4").pack(anchor="w")
         self.lbl_stat_ready = tk.Label(m2, textvariable=self.stat_ready_contacts_var, font=("Segoe UI", 13, "bold"), fg="#16a34a", bg="#f0fdf4")
         self.lbl_stat_ready.pack(anchor="w", pady=(1, 0))
         self.lbl_stat_ready_sub = tk.Label(m2, textvariable=self.stat_ready_sub_var, font=("Segoe UI", 7), fg="#16a34a", bg="#f0fdf4")
         self.lbl_stat_ready_sub.pack(anchor="w")
 
-        # Metric 3: DUPLICATES / SKIPPED (Amber / Orange Alert)
-        m3 = tk.Frame(metrics_frame, bg="#fffbeb", highlightbackground="#fde68a", highlightthickness=1, padx=10, pady=5, cursor="hand2")
-        m3.grid(row=0, column=2, sticky="nsew", padx=(0, 6))
-        self.lbl_stat_dup_title = tk.Label(m3, text="DUPLICATES / SKIPPED", font=("Segoe UI", 7, "bold"), fg="#b45309", bg="#fffbeb", cursor="hand2")
+        # Metric 3: REMAINING (Cyan / Blue Accent)
+        m3_rem = tk.Frame(metrics_frame, bg="#f0f9ff", highlightbackground="#bae6fd", highlightthickness=1, padx=8, pady=5)
+        m3_rem.grid(row=0, column=2, sticky="nsew", padx=(0, 5))
+        tk.Label(m3_rem, text="REMAINING", font=("Segoe UI", 7, "bold"), fg="#0284c7", bg="#f0f9ff").pack(anchor="w")
+        self.lbl_stat_remaining = tk.Label(m3_rem, textvariable=self.stat_remaining_contacts_var, font=("Segoe UI", 13, "bold"), fg="#0284c7", bg="#f0f9ff")
+        self.lbl_stat_remaining.pack(anchor="w", pady=(1, 0))
+        self.lbl_stat_remaining_sub = tk.Label(m3_rem, textvariable=self.stat_remaining_sub_var, font=("Segoe UI", 7), fg="#0369a1", bg="#f0f9ff")
+        self.lbl_stat_remaining_sub.pack(anchor="w")
+
+        # Metric 4: DUPLICATES / SKIPPED (Amber / Orange Alert)
+        m4_dup = tk.Frame(metrics_frame, bg="#fffbeb", highlightbackground="#fde68a", highlightthickness=1, padx=8, pady=5, cursor="hand2")
+        m4_dup.grid(row=0, column=3, sticky="nsew", padx=(0, 5))
+        self.lbl_stat_dup_title = tk.Label(m4_dup, text="DUPLICATES / SKIPPED", font=("Segoe UI", 7, "bold"), fg="#b45309", bg="#fffbeb", cursor="hand2")
         self.lbl_stat_dup_title.pack(anchor="w")
-        self.lbl_stat_dup = tk.Label(m3, textvariable=self.stat_dup_contacts_var, font=("Segoe UI", 13, "bold"), fg="#d97706", bg="#fffbeb", cursor="hand2")
+        self.lbl_stat_dup = tk.Label(m4_dup, textvariable=self.stat_dup_contacts_var, font=("Segoe UI", 13, "bold"), fg="#d97706", bg="#fffbeb", cursor="hand2")
         self.lbl_stat_dup.pack(anchor="w", pady=(1, 0))
-        self.lbl_stat_dup_detail = tk.Label(m3, textvariable=self.stat_dup_detail_var, font=("Segoe UI", 7), fg="#b45309", bg="#fffbeb", cursor="hand2")
+        self.lbl_stat_dup_detail = tk.Label(m4_dup, textvariable=self.stat_dup_detail_var, font=("Segoe UI", 7), fg="#b45309", bg="#fffbeb", cursor="hand2")
         self.lbl_stat_dup_detail.pack(anchor="w")
 
         # Click handler on Amber card opens interactive skipped contacts review modal
-        for w in (m3, self.lbl_stat_dup_title, self.lbl_stat_dup, self.lbl_stat_dup_detail):
+        for w in (m4_dup, self.lbl_stat_dup_title, self.lbl_stat_dup, self.lbl_stat_dup_detail):
             w.bind("<Button-1>", lambda e: self._open_skipped_contacts_modal())
 
-        # Metric 4: GDPR ISOLATION
-        m4 = tk.Frame(metrics_frame, bg="#eff6ff", highlightbackground="#bfdbfe", highlightthickness=1, padx=10, pady=5)
-        m4.grid(row=0, column=3, sticky="nsew")
-        tk.Label(m4, text="GDPR ISOLATION", font=("Segoe UI", 7, "bold"), fg="#2563eb", bg="#eff6ff").pack(anchor="w")
-        self.lbl_stat_gdpr = tk.Label(m4, textvariable=self.stat_gdpr_status_var, font=("Segoe UI", 11, "bold"), fg="#2563eb", bg="#eff6ff")
+        # Metric 5: GDPR ISOLATION
+        m5_gdpr = tk.Frame(metrics_frame, bg="#eff6ff", highlightbackground="#bfdbfe", highlightthickness=1, padx=8, pady=5)
+        m5_gdpr.grid(row=0, column=4, sticky="nsew")
+        tk.Label(m5_gdpr, text="GDPR ISOLATION", font=("Segoe UI", 7, "bold"), fg="#2563eb", bg="#eff6ff").pack(anchor="w")
+        self.lbl_stat_gdpr = tk.Label(m5_gdpr, textvariable=self.stat_gdpr_status_var, font=("Segoe UI", 11, "bold"), fg="#2563eb", bg="#eff6ff")
         self.lbl_stat_gdpr.pack(anchor="w", pady=(3, 0))
-        tk.Label(m4, text="Single-tenant only", font=("Segoe UI", 7), fg="#3b82f6", bg="#eff6ff").pack(anchor="w")
+        tk.Label(m5_gdpr, text="Single-tenant only", font=("Segoe UI", 7), fg="#3b82f6", bg="#eff6ff").pack(anchor="w")
 
         # File Selection & CSV Inspector Strip
         file_strip = tk.Frame(top_card, bg=self.COLOR_CARD_BG)
@@ -1025,6 +1037,8 @@ class AgilicoImporterApp:
         self.stat_total_contacts_var.set(str(len(contacts)))
         self.stat_ready_contacts_var.set(str(max(0, len(contacts) - dup_contacts)))
         self.stat_ready_sub_var.set("ready to import")
+        self.stat_remaining_contacts_var.set(str(len(contacts)))
+        self.stat_remaining_sub_var.set("left to process")
         self.stat_dup_contacts_var.set(str(dup_contacts))
         self.stat_dup_detail_var.set(f"{dup_contacts} in CSV" if dup_contacts > 0 else "0 in CSV")
         self.status_detail_var.set(f"Loaded {len(contacts)} contacts. {dup_contacts} duplicate entries. {no_number_count} missing number. Click 'CSV Inspector' to review.")
@@ -3100,6 +3114,8 @@ class AgilicoImporterApp:
             self.live_skipped_contacts = []
             self._last_verified_idx = 0  # Fix #8: reset verified index tracker
             pacing_delay = self._get_pacing_delay()
+            self.stat_remaining_contacts_var.set(str(len(contacts_to_import)))
+            self.stat_remaining_sub_var.set(f"0 / {len(contacts_to_import)} done")
             self.log(f"Starting contact import pipeline (pacing: {pacing_delay:.1f}s safety delay, real-time validation active)...", level="SUCCESS")
 
             success_count = 0
@@ -3144,6 +3160,11 @@ class AgilicoImporterApp:
                     self.stat_dup_contacts_var.set(str(total_skipped_live))
                     self.stat_dup_detail_var.set(f"Live: {len(skipped_contacts)} on portal")
                     self.stat_ready_contacts_var.set(str(max(0, len(contacts_to_import) - len(skipped_contacts))))
+
+                    # Live update remaining contacts
+                    rem = len(contacts_to_import) - idx
+                    self.stat_remaining_contacts_var.set(str(max(0, rem)))
+                    self.stat_remaining_sub_var.set(f"{idx} / {len(contacts_to_import)} processed")
 
                     self.log(
                         f"[SKIPPED - ALREADY EXISTS] Contact '{contact['display_name']}' (Row {contact['row_num']}) "
@@ -3383,6 +3404,9 @@ class AgilicoImporterApp:
                         success_count += 1
                         contact_completed = True
                         self._last_verified_idx = idx  # Fix #8: mark this contact as fully verified
+                        rem = len(contacts_to_import) - idx
+                        self.stat_remaining_contacts_var.set(str(max(0, rem)))
+                        self.stat_remaining_sub_var.set(f"{idx} / {len(contacts_to_import)} processed")
                         self.log(f"Successfully completed and verified contact {idx}/{len(contacts_to_import)}: {contact['display_name']}", level="SUCCESS")
 
                         # Safety pacing delay before next contact transaction to prevent server overload / network blips
@@ -3404,6 +3428,9 @@ class AgilicoImporterApp:
                             continue
                         else:
                             fail_count += 1
+                            rem = len(contacts_to_import) - idx
+                            self.stat_remaining_contacts_var.set(str(max(0, rem)))
+                            self.stat_remaining_sub_var.set(f"{idx} / {len(contacts_to_import)} processed")
                             err_msg = str(ex).splitlines()[0] if str(ex) else "Unknown error"
                             self.failed_contacts.append((contact.get("row_num", idx), contact.get("display_name", "Unknown"), err_msg))
                             self.log(f"Error processing row {contact['row_num']} ({contact['display_name']}): {err_msg}", level="ERROR")
@@ -3420,6 +3447,8 @@ class AgilicoImporterApp:
             # Step 8: Final Reconciliation & Completion
             if not self.stop_requested and not halted_by_validation:
                 self.progress_val_var.set(100)
+                self.stat_remaining_contacts_var.set("0")
+                self.stat_remaining_sub_var.set("all completed")
                 self.status_detail_var.set("Running final reconciliation...")
 
                 verified_all, missing_all = self._reconcile_all_contacts(contacts_to_import, contacts_url)
@@ -3467,6 +3496,9 @@ class AgilicoImporterApp:
                 self.status_detail_var.set("Import stopped by user.")
 
         except ImportStoppedException:
+            rem = len(contacts_to_import) - self._last_verified_idx
+            self.stat_remaining_contacts_var.set(str(max(0, rem)))
+            self.stat_remaining_sub_var.set("stopped")
             self.log("⏹ Process stopped immediately by user.", level="WARNING")
             self.status_detail_var.set("Import stopped by user.")
             self._export_remaining_contacts(contacts_to_import, self._last_verified_idx, csv_path)
