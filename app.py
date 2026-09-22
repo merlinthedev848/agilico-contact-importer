@@ -44,6 +44,15 @@ from selenium.common.exceptions import (
 )
 
 
+# =============================================================================
+# Pre-compiled Regex Patterns for High-Throughput Performance
+# =============================================================================
+RE_CLEAN_PHONE = re.compile(r"[^\d+]")
+RE_EXCEL_FLOAT = re.compile(r"^\d+\.0$")
+RE_ENTRIES_INFO = re.compile(r"of\s+([\d,]+)\s+(?:total\s+)?entries", re.IGNORECASE)
+RE_DIGITS = re.compile(r"\d+")
+
+
 def get_resource_path(relative_path: str) -> str:
     """Get absolute path to resource, compatible with dev and PyInstaller onefile bundles."""
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
@@ -85,6 +94,89 @@ class AgilicoImporterApp:
     ES_CONTINUOUS = 0x80000000
     ES_SYSTEM_REQUIRED = 0x00000001
     ES_DISPLAY_REQUIRED = 0x00000002
+
+    # Cached XPath Selectors (Immutable Tuples)
+    DISMISS_XPATHS = (
+        "//button[contains(@id, 'cookie') or contains(@class, 'cookie') or contains(translate(., 'COOKIE', 'cookie'), 'cookie') or contains(translate(., 'ACCEPT', 'accept'), 'accept all') or contains(translate(., 'AGREE', 'agree'), 'i agree')]",
+        "//div[contains(@class, 'cc-window') or contains(@class, 'cookie-banner')]//button",
+        "//button[contains(@class, 'close') and @aria-label='Close' and ancestor::div[contains(@class, 'alert') or contains(@class, 'banner')]]",
+    )
+    USER_XPATHS = (
+        "//input[@id='Username' or @name='Username' or @id='UserName' or @name='UserName']",
+        "//input[contains(translate(@id, 'USERNAME', 'username'), 'username')]",
+        "//input[contains(translate(@name, 'USERNAME', 'username'), 'username')]",
+        "//input[@type='text' or @type='email']",
+    )
+    PWD_XPATHS = (
+        "//input[@id='Password' or @name='Password']",
+        "//input[@type='password']",
+        "//input[contains(translate(@id, 'PASSWORD', 'password'), 'password')]",
+        "//input[contains(translate(@name, 'PASSWORD', 'password'), 'password')]",
+    )
+    SUBMIT_XPATHS = (
+        "//button[@type='submit']",
+        "//input[@type='submit']",
+        "//button[contains(translate(., 'LOGIN', 'login'), 'log in') or contains(translate(., 'SIGN IN', 'sign in'), 'sign in')]",
+        "//a[contains(translate(., 'LOGIN', 'login'), 'log in') or contains(translate(., 'SIGN IN', 'sign in'), 'sign in')]",
+    )
+    AUTH_ERROR_XPATHS = (
+        "//*[contains(@class, 'validation-summary-errors')]",
+        "//*[contains(@class, 'alert-danger')]",
+        "//*[contains(translate(text(), 'INVALID', 'invalid'), 'invalid') and contains(translate(text(), 'PASSWORD', 'password'), 'password')]",
+        "//*[contains(translate(text(), 'INCORRECT', 'incorrect'), 'incorrect')]",
+    )
+    NAV_BACK_XPATHS = (
+        "//a[contains(@href, '/Contacts') and (normalize-space(.)='Contacts' or contains(., 'Back') or contains(., 'List')) and not(contains(@href, 'ContactNumbers')) and not(contains(@href, 'Create')) and not(contains(@href, 'Edit'))]",
+        "//a[(normalize-space(.)='Contacts' or normalize-space(.)='Back to List' or contains(., 'Back to List')) and not(contains(@href, 'ContactNumbers'))]",
+        "//ul[contains(@class, 'nav') or contains(@class, 'navbar') or contains(@class, 'sidebar')]//a[contains(., 'Contacts') or contains(@href, '/Contacts')]",
+        "//a[contains(@href, '/Contacts') and not(contains(@href, 'ContactNumbers')) and not(contains(@href, 'Create')) and not(contains(@href, 'Edit')) and not(contains(@href, 'Add'))]",
+    )
+    SEARCH_BOX_XPATHS = (
+        "//input[@type='search']",
+        "//input[contains(@aria-controls, 'contact') or contains(@aria-controls, 'Contact')]",
+        "//input[contains(@placeholder, 'Search') or contains(@placeholder, 'Filter') or contains(@placeholder, 'search') or contains(@placeholder, 'filter')]",
+        "//div[contains(@class, 'dataTables_filter')]//input",
+        "//input[contains(@class, 'search') or contains(@class, 'filter')]",
+        "//input[contains(@class, 'form-control') and not(@type='hidden') and not(@type='password')]",
+    )
+    ADD_CONTACT_XPATHS = (
+        "//a[contains(@href, '/Contacts/Create') or contains(@href, '/Contacts/Add')]",
+        "//a[(contains(., 'Add') or contains(., 'Create') or .//i[contains(@class, 'fa-plus')]) and not(contains(@href, 'ContactNumbers')) and not(contains(@class, 'x-overlay')) and not(contains(., 'Back'))]",
+        "//button[(contains(., 'Add') or contains(., 'Create') or .//i[contains(@class, 'fa-plus')]) and not(contains(@class, 'x-overlay')) and not(contains(., 'Back'))]",
+        "//a[contains(translate(., 'ADD', 'add'), 'add') and not(contains(@href, 'ContactNumbers')) and not(contains(@class, 'x-overlay')) and not(contains(., 'Back'))]",
+    )
+    SAVE_BUTTON_XPATHS = (
+        "//form[not(contains(@action, 'ContactNumber'))]//button[@type='submit' and contains(@class, 'x-save') and contains(@class, 'btn-primary')]",
+        "//button[@type='submit' and contains(@class, 'x-save') and contains(@class, 'btn-primary')]",
+        "//button[@type='submit' and contains(@class, 'x-save')]",
+        "//button[contains(@class, 'btn-primary') and contains(@class, 'x-save')]",
+        "//button[contains(@class, 'x-save') and .//i[contains(@class, 'fa-save')]]",
+        "//button[contains(@class, 'x-save')]",
+        "//a[contains(@class, 'btn-primary') and contains(@class, 'x-save')]",
+        "//a[contains(@class, 'x-save')]",
+    )
+    MODAL_SAVE_BUTTON_XPATHS = (
+        "//div[contains(@class, 'modal') or contains(@class, 'x-window') or contains(@class, 'x-overlay')]//button[@type='submit' and contains(@class, 'x-save')]",
+        "//div[contains(@class, 'modal') or contains(@class, 'x-window') or contains(@class, 'x-overlay')]//button[contains(@class, 'btn-primary') and contains(@class, 'x-save')]",
+        "//div[contains(@class, 'modal') or contains(@class, 'x-window') or contains(@class, 'x-overlay')]//button[contains(@class, 'x-save')]",
+        "//form[contains(@action, 'ContactNumber')]//button[contains(@class, 'x-save')]",
+        "//form[contains(@action, 'ContactNumber')]//button[@type='submit']",
+    )
+    ADD_NUMBER_BUTTON_XPATHS = (
+        "//a[contains(@href, '/ContactNumbers/Add') and contains(@class, 'x-overlay')]",
+        "//a[contains(@href, '/ContactNumbers/Add')]",
+        "//a[contains(@class, 'x-overlay') and contains(@href, 'ContactNumber')]",
+        "//a[contains(@class, 'x-overlay') and (contains(., 'Add') or contains(., 'Number'))]",
+        "//a[contains(., 'Add') and contains(@class, 'btn') and ancestor::div[contains(@class, 'numbers') or contains(@class, 'table') or contains(@id, 'Number')]]",
+    )
+    FORM_INDICATOR_XPATHS = (
+        "//div[contains(., 'Contact Details')]",
+        "//span[contains(., 'Contact Details')]",
+        "//h4[contains(., 'Contact Details')]",
+        "//h3[contains(., 'Contact Details')]",
+        "//form",
+        "//div[contains(@class, 'x-window')]",
+    )
 
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -1093,7 +1185,7 @@ class AgilicoImporterApp:
             fn = (c.get("first_name") or "").strip().lower()
             ln = (c.get("last_name") or "").strip().lower()
             dn = (c.get("display_name") or "").strip().lower()
-            num = re.sub(r"[^\d+]", "", c.get("number", ""))
+            num = RE_CLEAN_PHONE.sub("", c.get("number", ""))
 
             if not num:
                 no_number_count += 1
@@ -1221,7 +1313,7 @@ class AgilicoImporterApp:
         type_detect_var = tk.StringVar(value="")
 
         def update_detected_type(*args):
-            num = re.sub(r"[^\d+]", "", num_var.get())
+            num = RE_CLEAN_PHONE.sub("", num_var.get())
             if not num:
                 type_detect_var.set("No Number (Name Only)")
             elif num.startswith(("07", "+447", "447", "00447")):
@@ -1590,7 +1682,7 @@ class AgilicoImporterApp:
                 ln = (c.get("last_name") or "").strip().lower()
                 dn = (c.get("display_name") or "").strip().lower()
                 raw_phone = (c.get("number") or "").strip()
-                clean_num = re.sub(r"[^\d+]", "", raw_phone)
+                clean_num = RE_CLEAN_PHONE.sub("", raw_phone)
                 k = (fn, ln, dn, clean_num)
                 record_counts[k] = record_counts.get(k, 0) + 1
 
@@ -1600,7 +1692,7 @@ class AgilicoImporterApp:
                 ln = (c.get("last_name") or "").strip().lower()
                 dn = (c.get("display_name") or "").strip().lower()
                 phone = (c.get("number") or "").strip()
-                clean_num = re.sub(r"[^\d+]", "", phone)
+                clean_num = RE_CLEAN_PHONE.sub("", phone)
 
                 k = (fn, ln, dn, clean_num)
                 is_dup = False
@@ -1815,29 +1907,31 @@ class AgilicoImporterApp:
         self.log_queue.put((now, message, level))
 
     def _start_log_consumer(self):
-        """Polls log queue and updates ScrolledText widget from UI thread.
-        Fix #15: guards against firing after the widget has been destroyed."""
+        """Polls log queue and updates ScrolledText widget from UI thread in responsive batches."""
         if not self._log_consumer_active:
             return
         try:
-            while True:
-                time_str, msg, level = self.log_queue.get_nowait()
+            entries = []
+            while len(entries) < 40:
+                try:
+                    entries.append(self.log_queue.get_nowait())
+                except queue.Empty:
+                    break
+
+            if entries:
                 self.log_text.config(state=tk.NORMAL)
-                self.log_text.insert(tk.END, f"[{time_str}] ", "TIMESTAMP")
-                if level in ("SUCCESS", "WARNING", "ERROR", "SKIPPED"):
-                    self.log_text.insert(tk.END, f"[{level}] ", level)
+                for time_str, msg, level in entries:
+                    self.log_text.insert(tk.END, f"[{time_str}] ", "TIMESTAMP")
+                    if level in ("SUCCESS", "WARNING", "ERROR", "SKIPPED"):
+                        self.log_text.insert(tk.END, f"[{level}] ", level)
                     self.log_text.insert(tk.END, f"{msg}\n", "INFO")
-                else:
-                    self.log_text.insert(tk.END, f"{msg}\n", "INFO")
+                    self.log_queue.task_done()
                 self.log_text.see(tk.END)
                 self.log_text.config(state=tk.DISABLED)
-                self.log_queue.task_done()
-        except queue.Empty:
-            pass
         except Exception:
             return  # Widget likely destroyed; stop the consumer
 
-        self.root.after(100, self._start_log_consumer)
+        self.root.after(80, self._start_log_consumer)
 
     def _copy_log(self):
         """Copies all current text in the activity log to the system clipboard."""
@@ -2108,7 +2202,7 @@ class AgilicoImporterApp:
                 return ""
             s = str(val).strip().strip('"').strip("'")
             # Remove trailing .0 from Excel numeric values (e.g. 101.0 -> 101)
-            if re.match(r"^\d+\.0$", s):
+            if RE_EXCEL_FLOAT.match(s):
                 s = s[:-2]
             return s
 
@@ -2247,12 +2341,7 @@ class AgilicoImporterApp:
         """Proactively dismisses cookie consent popups, service alerts, and stray backdrop masks."""
         if not driver:
             return
-        dismiss_xpaths = [
-            "//button[contains(@id, 'cookie') or contains(@class, 'cookie') or contains(translate(., 'COOKIE', 'cookie'), 'cookie') or contains(translate(., 'ACCEPT', 'accept'), 'accept all') or contains(translate(., 'AGREE', 'agree'), 'i agree')]",
-            "//div[contains(@class, 'cc-window') or contains(@class, 'cookie-banner')]//button",
-            "//button[contains(@class, 'close') and @aria-label='Close' and ancestor::div[contains(@class, 'alert') or contains(@class, 'banner')]]",
-        ]
-        for xp in dismiss_xpaths:
+        for xp in self.DISMISS_XPATHS:
             try:
                 elems = driver.find_elements(By.XPATH, xp)
                 for el in elems:
@@ -2282,7 +2371,7 @@ class AgilicoImporterApp:
             self._check_stop()
             try:
                 driver.execute_script("arguments[0].scrollIntoView({block: 'center', inline: 'center'});", element)
-                self._sleep(0.15)
+                self._sleep(0.12)
                 element.click()
                 return True
             except (ElementClickInterceptedException, ElementNotInteractableException, StaleElementReferenceException):
@@ -2290,19 +2379,17 @@ class AgilicoImporterApp:
                     driver.execute_script("arguments[0].click();", element)
                     return True
                 except Exception as js_ex:
-                    # Fix #7: log when JS fallback also fails
                     if attempt == retries - 1:
                         self.log(f"Click fallback failed (attempt {attempt+1}/{retries}): {str(js_ex).splitlines()[0]}", level="MUTED")
-                    self._sleep(0.2)
+                    self._sleep(0.15)
             except Exception:
                 try:
                     driver.execute_script("arguments[0].click();", element)
                     return True
                 except Exception as js_ex2:
-                    # Fix #7: log when JS fallback also fails
                     if attempt == retries - 1:
                         self.log(f"Click JS fallback failed (attempt {attempt+1}/{retries}): {str(js_ex2).splitlines()[0]}", level="MUTED")
-                    self._sleep(0.2)
+                    self._sleep(0.15)
         return False
 
     def _find_input_field(self, driver, wait, field_identifiers):
@@ -2311,7 +2398,7 @@ class AgilicoImporterApp:
         for term in field_identifiers:
             t_lower = term.lower()
 
-            xpaths = [
+            xpaths = (
                 # 1. Label text containing name followed by input
                 f"//label[contains(translate(text(), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{t_lower}')]/following::input[1]",
                 f"//label[contains(translate(., 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{t_lower}')]/following::input[1]",
@@ -2323,7 +2410,7 @@ class AgilicoImporterApp:
                 f"//input[contains(translate(@id, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{t_lower}')]",
                 f"//input[contains(translate(@placeholder, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{t_lower}')]",
                 f"//input[contains(translate(@aria-label, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), '{t_lower}')]",
-            ]
+            )
 
             for xpath in xpaths:
                 try:
@@ -2343,20 +2430,19 @@ class AgilicoImporterApp:
             return
         try:
             driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
-            self._sleep(0.08)
+            self._sleep(0.06)
             element.click()
             element.clear()
             element.send_keys(Keys.CONTROL + "a")
             element.send_keys(Keys.BACKSPACE)
-            self._sleep(0.05)
+            self._sleep(0.04)
             element.send_keys(value)
-            self._sleep(0.08)
+            self._sleep(0.06)
         except Exception:
             pass
 
         try:
             # Fire input/change/blur events so ASP.NET / jQuery forms register the keystroke value.
-            # Do NOT re-set el.value here — that would double-trigger and overwrite what send_keys entered.
             driver.execute_script(
                 "var el = arguments[0];"
                 "if (window.$ && $(el).length) {"
@@ -2368,7 +2454,7 @@ class AgilicoImporterApp:
                 "}",
                 element,
             )
-            self._sleep(0.05)
+            self._sleep(0.04)
         except Exception:
             pass
 
@@ -2394,19 +2480,7 @@ class AgilicoImporterApp:
 
     def _find_add_number_button(self, wait):
         """Specifically locates <a href="/ContactNumbers/Add?ContactId=###" class="btn btn-default x-overlay"><i class="fa fa-plus"></i> Add</a>"""
-        candidate_xpaths = [
-            # 1. Exact href match for ContactNumbers/Add
-            "//a[contains(@href, '/ContactNumbers/Add') and contains(@class, 'x-overlay')]",
-            "//a[contains(@href, '/ContactNumbers/Add')]",
-            "//a[contains(@href, 'ContactNumbers') and contains(@class, 'btn-default') and contains(@class, 'x-overlay')]",
-            "//a[contains(@href, 'ContactNumbers') and contains(., 'Add')]",
-            # 2. Exact class and text/icon match
-            "//a[contains(@class, 'btn-default') and contains(@class, 'x-overlay') and (contains(., 'Add') or .//i[contains(@class, 'fa-plus')]) and not(contains(., 'Back'))]",
-            "//a[contains(@class, 'x-overlay') and (contains(., 'Add') or .//i[contains(@class, 'fa-plus')]) and not(contains(., 'Back'))]",
-            "//button[contains(@class, 'btn-default') and contains(@class, 'x-overlay') and (contains(., 'Add') or .//i[contains(@class, 'fa-plus')]) and not(contains(., 'Back'))]",
-        ]
-
-        for xpath in candidate_xpaths:
+        for xpath in self.ADD_NUMBER_BUTTON_XPATHS:
             try:
                 elements = self.driver.find_elements(By.XPATH, xpath)
                 for el in elements:
@@ -2492,17 +2566,7 @@ class AgilicoImporterApp:
 
     def _find_save_button(self):
         """Locates <button type="submit" class="btn btn-primary x-save"><i class="fa fa-save"></i></button> on the main contact form."""
-        save_selectors = [
-            "//form[not(contains(@action, 'ContactNumber'))]//button[@type='submit' and contains(@class, 'x-save') and contains(@class, 'btn-primary')]",
-            "//button[@type='submit' and contains(@class, 'x-save') and contains(@class, 'btn-primary')]",
-            "//button[@type='submit' and contains(@class, 'x-save')]",
-            "//button[contains(@class, 'btn-primary') and contains(@class, 'x-save')]",
-            "//button[contains(@class, 'x-save') and .//i[contains(@class, 'fa-save')]]",
-            "//button[contains(@class, 'x-save')]",
-            "//a[contains(@class, 'btn-primary') and contains(@class, 'x-save')]",
-            "//a[contains(@class, 'x-save')]",
-        ]
-        for xpath in save_selectors:
+        for xpath in self.SAVE_BUTTON_XPATHS:
             try:
                 elements = self.driver.find_elements(By.XPATH, xpath)
                 for el in elements:
@@ -2515,14 +2579,7 @@ class AgilicoImporterApp:
 
     def _find_modal_save_button(self):
         """Specifically locates the Save button inside the active phone number modal overlay."""
-        modal_save_selectors = [
-            "//div[contains(@class, 'modal') or contains(@class, 'x-window') or contains(@class, 'x-overlay')]//button[@type='submit' and contains(@class, 'x-save')]",
-            "//div[contains(@class, 'modal') or contains(@class, 'x-window') or contains(@class, 'x-overlay')]//button[contains(@class, 'btn-primary') and contains(@class, 'x-save')]",
-            "//div[contains(@class, 'modal') or contains(@class, 'x-window') or contains(@class, 'x-overlay')]//button[contains(@class, 'x-save')]",
-            "//form[contains(@action, 'ContactNumber')]//button[contains(@class, 'x-save')]",
-            "//form[contains(@action, 'ContactNumber')]//button[@type='submit']",
-        ]
-        for xpath in modal_save_selectors:
+        for xpath in self.MODAL_SAVE_BUTTON_XPATHS:
             try:
                 elements = self.driver.find_elements(By.XPATH, xpath)
                 for el in elements:
@@ -2551,14 +2608,8 @@ class AgilicoImporterApp:
         self.status_detail_var.set("Entering customer credentials...")
 
         # Find username field
-        user_xpaths = [
-            "//input[@id='Username' or @name='Username' or @id='UserName' or @name='UserName']",
-            "//input[contains(translate(@id, 'USERNAME', 'username'), 'username')]",
-            "//input[contains(translate(@name, 'USERNAME', 'username'), 'username')]",
-            "//input[@type='text' or @type='email']",
-        ]
         user_elem = None
-        for xp in user_xpaths:
+        for xp in self.USER_XPATHS:
             try:
                 elems = self.driver.find_elements(By.XPATH, xp)
                 for el in elems:
@@ -2582,14 +2633,8 @@ class AgilicoImporterApp:
         self.log(f"Entered portal username: {username}", level="INFO")
 
         # Find password field
-        pwd_xpaths = [
-            "//input[@id='Password' or @name='Password']",
-            "//input[@type='password']",
-            "//input[contains(translate(@id, 'PASSWORD', 'password'), 'password')]",
-            "//input[contains(translate(@name, 'PASSWORD', 'password'), 'password')]",
-        ]
         pwd_elem = None
-        for xp in pwd_xpaths:
+        for xp in self.PWD_XPATHS:
             try:
                 elems = self.driver.find_elements(By.XPATH, xp)
                 for el in elems:
@@ -2608,14 +2653,8 @@ class AgilicoImporterApp:
         self.log("Entered portal password: ••••••••", level="INFO")
 
         # Find Submit button
-        submit_xpaths = [
-            "//button[@type='submit']",
-            "//input[@type='submit']",
-            "//button[contains(translate(., 'LOGIN', 'login'), 'log in') or contains(translate(., 'SIGN IN', 'sign in'), 'sign in')]",
-            "//a[contains(translate(., 'LOGIN', 'login'), 'log in') or contains(translate(., 'SIGN IN', 'sign in'), 'sign in')]",
-        ]
         submit_elem = None
-        for xp in submit_xpaths:
+        for xp in self.SUBMIT_XPATHS:
             try:
                 elems = self.driver.find_elements(By.XPATH, xp)
                 for el in elems:
@@ -2637,13 +2676,7 @@ class AgilicoImporterApp:
         self._sleep(1.5)
 
         # Check for authentication errors
-        error_xpaths = [
-            "//*[contains(@class, 'validation-summary-errors')]",
-            "//*[contains(@class, 'alert-danger')]",
-            "//*[contains(translate(text(), 'INVALID', 'invalid'), 'invalid') and contains(translate(text(), 'PASSWORD', 'password'), 'password')]",
-            "//*[contains(translate(text(), 'INCORRECT', 'incorrect'), 'incorrect')]",
-        ]
-        for xp in error_xpaths:
+        for xp in self.AUTH_ERROR_XPATHS:
             try:
                 err_elems = self.driver.find_elements(By.XPATH, xp)
                 for el in err_elems:
@@ -2703,7 +2736,7 @@ class AgilicoImporterApp:
                 for el in info_elems:
                     try:
                         txt = el.text.strip()
-                        m = re.search(r"of\s+([\d,]+)\s+(?:total\s+)?entries", txt, re.IGNORECASE)
+                        m = RE_ENTRIES_INFO.search(txt)
                         if m:
                             parsed_count = int(m.group(1).replace(",", ""))
                             break
@@ -2800,16 +2833,8 @@ class AgilicoImporterApp:
         self.log("Navigating back to Contacts list view (clicking Contacts link)...", level="INFO")
         self._dismiss_unexpected_alert()
 
-        # Try clicking Contacts nav link or Back to list
-        nav_xpaths = [
-            "//a[contains(@href, '/Contacts') and (normalize-space(.)='Contacts' or contains(., 'Back') or contains(., 'List')) and not(contains(@href, 'ContactNumbers')) and not(contains(@href, 'Create')) and not(contains(@href, 'Edit'))]",
-            "//a[(normalize-space(.)='Contacts' or normalize-space(.)='Back to List' or contains(., 'Back to List')) and not(contains(@href, 'ContactNumbers'))]",
-            "//ul[contains(@class, 'nav') or contains(@class, 'navbar') or contains(@class, 'sidebar')]//a[contains(., 'Contacts') or contains(@href, '/Contacts')]",
-            "//a[contains(@href, '/Contacts') and not(contains(@href, 'ContactNumbers')) and not(contains(@href, 'Create')) and not(contains(@href, 'Edit')) and not(contains(@href, 'Add'))]",
-        ]
-
         clicked = False
-        for xpath in nav_xpaths:
+        for xpath in self.NAV_BACK_XPATHS:
             try:
                 elems = self.driver.find_elements(By.XPATH, xpath)
                 for el in elems:
@@ -2830,19 +2855,11 @@ class AgilicoImporterApp:
             self.driver.get(contacts_url)
             self._wait_for_page_ready(self.driver, timeout=15.0)
 
-        self._sleep(0.4)
+        self._sleep(0.3)
 
     def _find_contacts_search_box(self):
         """Finds the active search or filter input on the Contacts list page."""
-        search_xpaths = [
-            "//input[@type='search']",
-            "//input[contains(@aria-controls, 'contact') or contains(@aria-controls, 'Contact')]",
-            "//input[contains(@placeholder, 'Search') or contains(@placeholder, 'Filter') or contains(@placeholder, 'search') or contains(@placeholder, 'filter')]",
-            "//div[contains(@class, 'dataTables_filter')]//input",
-            "//input[contains(@class, 'search') or contains(@class, 'filter')]",
-            "//input[contains(@class, 'form-control') and not(@type='hidden') and not(@type='password')]",
-        ]
-        for sx in search_xpaths:
+        for sx in self.SEARCH_BOX_XPATHS:
             try:
                 elems = self.driver.find_elements(By.XPATH, sx)
                 for el in elems:
@@ -3149,9 +3166,9 @@ class AgilicoImporterApp:
             # Parse import limit (test run support)
             limit_val = None
             if limit_str and "all" not in limit_str.lower():
-                digits = re.search(r"\d+", limit_str)
-                if digits:
-                    limit_val = int(digits.group(0))
+                m_dig = RE_DIGITS.search(limit_str)
+                if m_dig:
+                    limit_val = int(m_dig.group(0))
 
             total_in_csv = len(contacts)
             if limit_val and 0 < limit_val < total_in_csv:
@@ -3308,14 +3325,8 @@ class AgilicoImporterApp:
                         self._check_stop()
 
                         # 7a. Click the main 'Add' Contact button (strictly excluding ContactNumbers links)
-                        add_contact_xpaths = [
-                            "//a[contains(@href, '/Contacts/Create') or contains(@href, '/Contacts/Add')]",
-                            "//a[(contains(., 'Add') or contains(., 'Create') or .//i[contains(@class, 'fa-plus')]) and not(contains(@href, 'ContactNumbers')) and not(contains(@class, 'x-overlay')) and not(contains(., 'Back'))]",
-                            "//button[(contains(., 'Add') or contains(., 'Create') or .//i[contains(@class, 'fa-plus')]) and not(contains(@class, 'x-overlay')) and not(contains(., 'Back'))]",
-                            "//a[contains(translate(., 'ADD', 'add'), 'add') and not(contains(@href, 'ContactNumbers')) and not(contains(@class, 'x-overlay')) and not(contains(., 'Back'))]",
-                        ]
                         add_btn = None
-                        for xpath in add_contact_xpaths:
+                        for xpath in self.ADD_CONTACT_XPATHS:
                             self._check_stop()
                             try:
                                 elems = self.driver.find_elements(By.XPATH, xpath)
@@ -3343,14 +3354,7 @@ class AgilicoImporterApp:
                         self._check_stop()
 
                         # 7b. Wait for the form (Contact Details) to load
-                        for form_indicator in [
-                            "//div[contains(., 'Contact Details')]",
-                            "//span[contains(., 'Contact Details')]",
-                            "//h4[contains(., 'Contact Details')]",
-                            "//h3[contains(., 'Contact Details')]",
-                            "//form",
-                            "//div[contains(@class, 'x-window')]",
-                        ]:
+                        for form_indicator in self.FORM_INDICATOR_XPATHS:
                             try:
                                 wait.until(EC.visibility_of_element_located((By.XPATH, form_indicator)))
                                 break
