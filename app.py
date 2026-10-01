@@ -3090,13 +3090,15 @@ class AgilicoImporterApp:
         fn_lower = first_name.lower()
         ln_lower = last_name.lower()
         
-        # Use full person name for targeted query if available, otherwise display name
-        if first_name and last_name:
+        # Use unique Display Name for targeted portal filter query, fallback to first/last name
+        if disp_name:
+            search_query = disp_name
+        elif first_name and last_name:
             search_query = f"{first_name} {last_name}".strip()
         elif first_name:
             search_query = first_name
         else:
-            search_query = disp_name
+            search_query = ""
 
         search_box = self._find_contacts_search_box()
         found = False
@@ -3260,6 +3262,12 @@ class AgilicoImporterApp:
 
         if not query_name:
             return False
+
+        # Ensure we are on the main Contacts list view before checking
+        current_url = (self.driver.current_url or "").rstrip("/").lower()
+        if not current_url.endswith("/contacts") or any(sub in current_url for sub in ["/create", "/edit", "/add", "/details"]):
+            self._return_to_contacts_list(contacts_url)
+        self._check_stop()
 
         self.log(f"Pre-check: Searching portal for '{query_name}' before adding to ensure it does not already exist...", level="INFO")
         exists = self._search_portal_for_contact(contact)
@@ -3478,6 +3486,43 @@ class AgilicoImporterApp:
                     + (" [Test Mode]" if is_test_run else ""),
                     level="INFO",
                 )
+
+                # Pre-check: Is contact already present on customer portal?
+                if self._check_contact_exists_on_portal(contact, contacts_url):
+                    self._check_stop()
+                    skipped_record = {
+                        "row_num": contact.get("row_num", idx),
+                        "first_name": contact.get("first_name", ""),
+                        "last_name": contact.get("last_name", ""),
+                        "display_name": contact.get("display_name", ""),
+                        "number": contact.get("number", ""),
+                        "reason": "Already exists on customer portal",
+                    }
+                    skipped_contacts.append(skipped_record)
+                    self.live_skipped_contacts.append(skipped_record)
+
+                    # Relay live info to Amber/Orange stats
+                    csv_dups_count = len(getattr(self, "csv_duplicate_contacts", []))
+                    total_skipped_live = len(skipped_contacts) + csv_dups_count
+                    self.stat_dup_contacts_var.set(str(total_skipped_live))
+                    self.stat_dup_detail_var.set(f"Live: {len(skipped_contacts)} on portal")
+                    self.stat_ready_contacts_var.set(str(max(0, len(contacts_to_import) - len(skipped_contacts))))
+
+                    # Live update remaining contacts and ETA countdown
+                    rem = len(contacts_to_import) - idx
+                    self.stat_remaining_contacts_var.set(str(max(0, rem)))
+                    self.stat_remaining_sub_var.set(f"{idx} / {len(contacts_to_import)} processed")
+                    self.eta_time_var.set(self._format_time_hms(max(0, rem) * 15))
+
+                    self.log(
+                        f"[SKIPPED - ALREADY EXISTS] Contact '{contact['display_name']}' (Row {contact['row_num']}) "
+                        f"already exists on the portal. Skipped to prevent duplicate creation.",
+                        level="SKIPPED",
+                    )
+                    self.status_detail_var.set(f"Skipped duplicate: {contact['display_name']} ({len(skipped_contacts)} skipped total so far)")
+                    self._last_verified_idx = idx
+                    self._check_stop()
+                    continue
 
                 max_retries = 2
                 contact_completed = False
