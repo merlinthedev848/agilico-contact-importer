@@ -2937,7 +2937,14 @@ class AgilicoImporterApp:
         disp_lower = disp_name.lower()
         fn_lower = first_name.lower()
         ln_lower = last_name.lower()
-        search_query = disp_name if disp_name else f"{first_name} {last_name}".strip()
+        
+        # Use full person name for targeted query if available, otherwise display name
+        if first_name and last_name:
+            search_query = f"{first_name} {last_name}".strip()
+        elif first_name:
+            search_query = first_name
+        else:
+            search_query = disp_name
 
         search_box = self._find_contacts_search_box()
         found = False
@@ -2974,10 +2981,10 @@ class AgilicoImporterApp:
                     row_text = (r.text or "").lower()
                     if not row_text or "no data" in row_text or "no matching" in row_text:
                         continue
-                    if disp_lower and disp_lower in row_text:
+                    if fn_lower and ln_lower and fn_lower in row_text and ln_lower in row_text:
                         found = True
                         break
-                    if fn_lower and ln_lower and fn_lower in row_text and ln_lower in row_text:
+                    if disp_lower and disp_lower in row_text and (not fn_lower or fn_lower in row_text) and (not ln_lower or ln_lower in row_text):
                         found = True
                         break
 
@@ -3001,10 +3008,10 @@ class AgilicoImporterApp:
                     row_text = (r.text or "").lower()
                     if not row_text or "no data" in row_text or "no matching" in row_text:
                         continue
-                    if disp_lower and disp_lower in row_text:
+                    if fn_lower and ln_lower and fn_lower in row_text and ln_lower in row_text:
                         found = True
                         break
-                    if fn_lower and ln_lower and fn_lower in row_text and ln_lower in row_text:
+                    if disp_lower and disp_lower in row_text and (not fn_lower or fn_lower in row_text) and (not ln_lower or ln_lower in row_text):
                         found = True
                         break
 
@@ -3306,42 +3313,11 @@ class AgilicoImporterApp:
                 else:
                     self.status_detail_var.set(f"Processing contact {idx} of {len(contacts_to_import)}: {contact['display_name']} ({pct}%)")
 
-                # Pre-check: Is contact already present on customer portal?
-                if self._check_contact_exists_on_portal(contact, contacts_url):
-                    self._check_stop()
-                    skipped_record = {
-                        "row_num": contact.get("row_num", idx),
-                        "first_name": contact.get("first_name", ""),
-                        "last_name": contact.get("last_name", ""),
-                        "display_name": contact.get("display_name", ""),
-                        "number": contact.get("number", ""),
-                        "reason": "Already exists on customer portal",
-                    }
-                    skipped_contacts.append(skipped_record)
-                    self.live_skipped_contacts.append(skipped_record)
-
-                    # Relay live information to Amber/Orange stats and UI labels
-                    csv_dups_count = len(getattr(self, "csv_duplicate_contacts", []))
-                    total_skipped_live = len(skipped_contacts) + csv_dups_count
-                    self.stat_dup_contacts_var.set(str(total_skipped_live))
-                    self.stat_dup_detail_var.set(f"Live: {len(skipped_contacts)} on portal")
-                    self.stat_ready_contacts_var.set(str(max(0, len(contacts_to_import) - len(skipped_contacts))))
-
-                    # Live update remaining contacts and ETA countdown
-                    rem = len(contacts_to_import) - idx
-                    self.stat_remaining_contacts_var.set(str(max(0, rem)))
-                    self.stat_remaining_sub_var.set(f"{idx} / {len(contacts_to_import)} processed")
-                    self.eta_time_var.set(self._format_time_hms(max(0, rem) * 15))
-
-                    self.log(
-                        f"[SKIPPED - ALREADY EXISTS] Contact '{contact['display_name']}' (Row {contact['row_num']}) "
-                        f"already exists on the portal. Skipped to prevent duplicate creation.",
-                        level="SKIPPED",
-                    )
-                    self.status_detail_var.set(f"Skipped duplicate: {contact['display_name']} ({len(skipped_contacts)} skipped total so far)")
-                    self._last_verified_idx = idx
-                    self._check_stop()
-                    continue
+                # Live update remaining contacts and ETA countdown
+                rem = len(contacts_to_import) - idx
+                self.stat_remaining_contacts_var.set(str(max(0, rem)))
+                self.stat_remaining_sub_var.set(f"{idx} / {len(contacts_to_import)} processed")
+                self.eta_time_var.set(self._format_time_hms(max(0, rem) * 15))
 
                 self._check_stop()
                 self.log(
