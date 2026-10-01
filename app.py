@@ -1437,9 +1437,18 @@ class AgilicoImporterApp:
                 messagebox.showwarning("Incomplete", "Please enter at least a name or telephone number for this contact.", parent=dlg)
                 return
 
-            if not dn:
+            if dn:
+                dn_lower = dn.lower()
+                parts = []
+                if fn and fn.lower() not in dn_lower:
+                    parts.append(fn)
+                if ln and ln.lower() not in dn_lower:
+                    parts.append(ln)
+                if parts:
+                    dn = f"{dn} {' '.join(parts)}".strip()
+            else:
                 if fn and ln:
-                    dn = f"{fn} {ln}"
+                    dn = f"{fn} {ln}".strip()
                 elif fn:
                     dn = fn
                 elif ln:
@@ -2398,8 +2407,20 @@ class AgilicoImporterApp:
             elif num_setting and num_setting not in ("(None)", None):
                 phone_number = normalize_phone_number(_clean_val(row.get(num_setting, "")))
 
-            # Generate Display Name fallback if blank
-            if not display_name:
+            # Intelligently synthesize Display Name to prevent portal uniqueness rejection:
+            # Formats as "Display Name First Last" (e.g. "Diego John Smith", "Diego Jane Doe")
+            if display_name:
+                dn_lower = display_name.lower()
+                parts = []
+                if first_name and first_name.lower() not in dn_lower:
+                    parts.append(first_name)
+                if last_name and last_name.lower() not in dn_lower:
+                    parts.append(last_name)
+                if parts:
+                    display_name = f"{display_name} {' '.join(parts)}".strip()
+                elif not first_name and not last_name and phone_number and phone_number not in display_name:
+                    display_name = f"{display_name} {phone_number}".strip()
+            else:
                 if first_name and last_name:
                     display_name = f"{first_name} {last_name}".strip()
                 elif first_name:
