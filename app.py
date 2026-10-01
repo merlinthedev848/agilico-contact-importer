@@ -277,6 +277,10 @@ class AgilicoImporterApp:
         self.stat_gdpr_status_var = tk.StringVar(value="ENFORCED")
         self.live_skipped_contacts = []
         self.csv_duplicate_contacts = []
+        self.custom_column_mapping = {}
+        self.csv_headers = []
+        self.csv_number_candidates = []
+        self.active_column_mapping = {}
 
         # Live Elapsed & ETA Timers (15s per contact benchmark)
         self.elapsed_time_var = tk.StringVar(value="00:00:00")
@@ -1205,12 +1209,13 @@ class AgilicoImporterApp:
         )
         if filename:
             clean_path = filename.strip().strip('"').strip("'")
+            self.custom_column_mapping = {}
             self.csv_path_var.set(clean_path)
             self._analyze_and_preview_csv(clean_path)
 
     def _analyze_and_preview_csv(self, file_path: str):
         """Analyzes loaded CSV file, validates rows, detects duplicates, and updates UI status."""
-        contacts = self._read_contacts_csv(file_path)
+        contacts = self._read_contacts_csv(file_path, getattr(self, "custom_column_mapping", None))
         base_name = os.path.basename(file_path)
         if not contacts:
             self.file_name_display_var.set(f"📄 {base_name} (0 contacts found)")
@@ -1652,8 +1657,8 @@ class AgilicoImporterApp:
 
         preview_win = tk.Toplevel(self.root)
         preview_win.title(f"CSV Pre-Flight Inspection & Editor — {os.path.basename(csv_path)}")
-        preview_win.geometry("860x540")
-        preview_win.minsize(740, 440)
+        preview_win.geometry("900x580")
+        preview_win.minsize(780, 480)
         preview_win.transient(self.root)
         preview_win.grab_set()
 
@@ -1676,6 +1681,67 @@ class AgilicoImporterApp:
             fg="#94a3b8",
             bg=self.COLOR_SIDEBAR_BG,
         ).pack(anchor="w")
+
+        # Optional Column Mapping Toolbar
+        mapping_frame = tk.Frame(preview_win, bg="#f8fafc", padx=16, pady=8, highlightbackground="#cbd5e1", highlightthickness=1)
+        mapping_frame.pack(fill=tk.X)
+
+        map_top = tk.Frame(mapping_frame, bg="#f8fafc")
+        map_top.pack(fill=tk.X, pady=(0, 4))
+        tk.Label(
+            map_top,
+            text="⚙️  CSV Column Mapping (Optional — Auto-detected automatically):",
+            font=("Segoe UI", 8, "bold"),
+            fg="#1e293b",
+            bg="#f8fafc",
+        ).pack(side=tk.LEFT)
+
+        map_grid = tk.Frame(mapping_frame, bg="#f8fafc")
+        map_grid.pack(fill=tk.X)
+        map_grid.columnconfigure(0, weight=1)
+        map_grid.columnconfigure(1, weight=1)
+        map_grid.columnconfigure(2, weight=1)
+        map_grid.columnconfigure(3, weight=1)
+
+        headers_with_none = ["(None)"] + self.csv_headers
+        dn_headers = ["(Auto Generate)", "(None)"] + self.csv_headers
+
+        num_options = ["(None)"]
+        if len(self.csv_number_candidates) > 1:
+            num_options.append("⭐ Auto-Combine (Mobile > Work > Home)")
+        num_options.extend(self.csv_headers)
+
+        # 1. First Name
+        f1 = tk.Frame(map_grid, bg="#f8fafc")
+        f1.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        tk.Label(f1, text="First Name Column:", font=("Segoe UI", 7, "bold"), fg="#64748b", bg="#f8fafc").pack(anchor="w")
+        fn_combo = ttk.Combobox(f1, values=headers_with_none, state="readonly", font=("Segoe UI", 8))
+        fn_combo.pack(fill=tk.X, pady=(2, 0))
+        fn_combo.set(self.active_column_mapping.get("first_name", "(None)"))
+
+        # 2. Last Name
+        f2 = tk.Frame(map_grid, bg="#f8fafc")
+        f2.grid(row=0, column=1, sticky="nsew", padx=(0, 6))
+        tk.Label(f2, text="Last Name Column:", font=("Segoe UI", 7, "bold"), fg="#64748b", bg="#f8fafc").pack(anchor="w")
+        ln_combo = ttk.Combobox(f2, values=headers_with_none, state="readonly", font=("Segoe UI", 8))
+        ln_combo.pack(fill=tk.X, pady=(2, 0))
+        ln_combo.set(self.active_column_mapping.get("last_name", "(None)"))
+
+        # 3. Display Name
+        f3 = tk.Frame(map_grid, bg="#f8fafc")
+        f3.grid(row=0, column=2, sticky="nsew", padx=(0, 6))
+        tk.Label(f3, text="Display Name Column:", font=("Segoe UI", 7, "bold"), fg="#64748b", bg="#f8fafc").pack(anchor="w")
+        dn_combo = ttk.Combobox(f3, values=dn_headers, state="readonly", font=("Segoe UI", 8))
+        dn_combo.pack(fill=tk.X, pady=(2, 0))
+        dn_combo.set(self.active_column_mapping.get("display_name", "(Auto Generate)"))
+
+        # 4. Telephone Number
+        f4 = tk.Frame(map_grid, bg="#f8fafc")
+        f4.grid(row=0, column=3, sticky="nsew")
+        tk.Label(f4, text="Telephone Number Column:", font=("Segoe UI", 7, "bold"), fg="#64748b", bg="#f8fafc").pack(anchor="w")
+        num_combo = ttk.Combobox(f4, values=num_options, state="readonly", font=("Segoe UI", 8))
+        num_combo.pack(fill=tk.X, pady=(2, 0))
+        num_combo.set(self.active_column_mapping.get("number", "(None)"))
 
         # Action Strip
         action_strip = tk.Frame(preview_win, bg="#f1f5f9", padx=16, pady=6, highlightbackground="#cbd5e1", highlightthickness=1)
@@ -1900,6 +1966,22 @@ class AgilicoImporterApp:
             fg="#64748b",
             bg="#f1f5f9",
         ).pack(side=tk.RIGHT)
+
+        def on_mapping_changed(event=None):
+            new_map = {
+                "first_name": fn_combo.get(),
+                "last_name": ln_combo.get(),
+                "display_name": dn_combo.get(),
+                "number": num_combo.get(),
+            }
+            self.custom_column_mapping = new_map
+            nonlocal contacts
+            contacts = self._read_contacts_csv(csv_path, custom_mapping=new_map)
+            refresh_table()
+            self._analyze_and_preview_csv(csv_path)
+
+        for cb in (fn_combo, ln_combo, dn_combo, num_combo):
+            cb.bind("<<ComboboxSelected>>", on_mapping_changed)
 
         # Bindings
         tree.bind("<Double-1>", lambda e: on_edit_selected())
@@ -2202,8 +2284,8 @@ class AgilicoImporterApp:
         )
         self.import_thread.start()
 
-    def _read_contacts_csv(self, csv_path: str):
-        """Reads CSV flexibly with RFC 4180 multiline support, encoding fallbacks, and comprehensive header synonyms."""
+    def _read_contacts_csv(self, csv_path: str, custom_mapping: dict = None):
+        """Reads CSV flexibly with RFC 4180 multiline support, encoding fallbacks, multi-number extraction, and customizable column mapping."""
         contacts = []
         encodings_to_try = ["utf-8-sig", "utf-8", "utf-16", "utf-16-le", "utf-16-be", "cp1252", "latin-1", "iso-8859-1"]
         raw_text = None
@@ -2238,34 +2320,83 @@ class AgilicoImporterApp:
         if not reader.fieldnames:
             return contacts
 
-        field_map = {}
-        for col in reader.fieldnames:
-            if not col:
+        self.csv_headers = list(reader.fieldnames or [])
+
+        # Smart automatic column discovery
+        fn_col = None
+        ln_col = None
+        dn_col = None
+        number_candidates = []
+
+        for h in self.csv_headers:
+            if not h:
                 continue
-            normalized = col.strip().lower().replace("_", " ").replace("-", " ").replace(".", "")
-            if any(k in normalized for k in ["first", "forename", "given", "fname"]):
-                field_map["first_name"] = col
-            elif any(k in normalized for k in ["last", "surname", "family", "lname"]):
-                field_map["last_name"] = col
-            elif any(k in normalized for k in ["display", "full name", "contact name", "contact"]):
-                field_map["display_name"] = col
-            elif any(k in normalized for k in ["number", "phone", "mobile", "tel", "cell", "direct", "telephone"]):
-                field_map["number"] = col
+            hn = h.strip().lower().replace("_", " ").replace("-", " ").replace(".", "")
+            is_ext = any(x in hn for x in ["extension", "ext", "virtual", "fax", "pin", "id", "zip", "code"])
+            if any(k in hn for k in ["first", "forename", "given", "fname"]) and not fn_col:
+                fn_col = h
+            elif any(k in hn for k in ["last", "surname", "family", "lname"]) and not ln_col:
+                ln_col = h
+            elif any(k in hn for k in ["display", "full name", "contact name", "contact"]) and not dn_col:
+                dn_col = h
+            
+            if not is_ext and any(k in hn for k in ["number", "phone", "mobile", "tel", "cell", "direct", "telephone", "work", "home"]):
+                number_candidates.append(h)
+
+        def num_priority(c):
+            cl = c.lower()
+            if "mob" in cl or "cell" in cl:
+                return 0
+            if "work" in cl or "office" in cl or "direct" in cl:
+                return 1
+            if "home" in cl or "tel" in cl or "phone" in cl or "num" in cl:
+                return 2
+            return 3
+            
+        number_candidates.sort(key=num_priority)
+        self.csv_number_candidates = number_candidates
+
+        auto_num_label = "⭐ Auto-Combine (Mobile > Work > Home)" if len(number_candidates) > 1 else (number_candidates[0] if number_candidates else "(None)")
+
+        # Default mapping
+        active_mapping = {
+            "first_name": fn_col or "(None)",
+            "last_name": ln_col or "(None)",
+            "display_name": dn_col or "(Auto Generate)",
+            "number": auto_num_label,
+        }
+        if custom_mapping:
+            active_mapping.update(custom_mapping)
+        self.active_column_mapping = active_mapping
 
         def _clean_val(val):
             if val is None:
                 return ""
             s = str(val).strip().strip('"').strip("'")
-            # Remove trailing .0 from Excel numeric values (e.g. 101.0 -> 101)
             if RE_EXCEL_FLOAT.match(s):
                 s = s[:-2]
             return s
 
+        fn_col_name = active_mapping.get("first_name")
+        ln_col_name = active_mapping.get("last_name")
+        dn_col_name = active_mapping.get("display_name")
+        num_setting = active_mapping.get("number")
+
         for idx, row in enumerate(reader, start=1):
-            first_name = _clean_val(row.get(field_map.get("first_name", "First Name"), ""))
-            last_name = _clean_val(row.get(field_map.get("last_name", "Last Name"), ""))
-            display_name = _clean_val(row.get(field_map.get("display_name", "Display Name"), ""))
-            phone_number = normalize_phone_number(row.get(field_map.get("number", "Number"), ""))
+            first_name = _clean_val(row.get(fn_col_name, "")) if fn_col_name not in ("(None)", None) else ""
+            last_name = _clean_val(row.get(ln_col_name, "")) if ln_col_name not in ("(None)", None) else ""
+            display_name = _clean_val(row.get(dn_col_name, "")) if dn_col_name not in ("(None)", "(Auto Generate)", None) else ""
+            
+            # Extract phone number
+            phone_number = ""
+            if num_setting and ("Auto-Combine" in num_setting or num_setting == "(Auto Priority)"):
+                for nc in number_candidates:
+                    raw_n = _clean_val(row.get(nc, ""))
+                    if raw_n:
+                        phone_number = normalize_phone_number(raw_n)
+                        break
+            elif num_setting and num_setting not in ("(None)", None):
+                phone_number = normalize_phone_number(_clean_val(row.get(num_setting, "")))
 
             # Generate Display Name fallback if blank
             if not display_name:
@@ -3218,7 +3349,7 @@ class AgilicoImporterApp:
         try:
             # Step 1: Read CSV
             self.log(f"Reading contacts from: {csv_path}", level="INFO")
-            contacts = self._read_contacts_csv(csv_path)
+            contacts = self._read_contacts_csv(csv_path, getattr(self, "custom_column_mapping", None))
             if not contacts:
                 self.log("No contacts found in CSV file or file is empty.", level="ERROR")
                 self.status_detail_var.set("Error: CSV is empty or invalid.")
